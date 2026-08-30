@@ -1,0 +1,56 @@
+# ── Text-to-SQL project config ────────────────────────────────────────────────
+# Edit values here; all scripts read from this file via load_config().
+
+model:
+  base_id: "Qwen/Qwen2.5-3B-Instruct"   # HuggingFace model ID for base/fine-tuning
+  finetuned_dir: "training/outputs/best_checkpoint"
+
+data:
+  raw_dir: "data/raw/spider"
+  processed_dir: "data/processed"
+  train_file: "data/processed/train.jsonl"
+  dev_file: "data/processed/dev.jsonl"
+
+training:
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+  learning_rate: 2.0e-4
+  num_epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  max_seq_length: 1024
+  warmup_ratio: 0.03
+  lr_scheduler: "cosine"
+  output_dir: "training/outputs"
+  logging_steps: 10
+  eval_steps: 200
+  save_steps: 200
+  fp16: false
+  bf16: true   # set false if GPU doesn't support bf16
+
+wandb:
+  project: "text-to-sql-finetune"
+  entity: null   # your W&B username / team
+
+eval:
+  timeout_seconds: 10        # per-query SQLite execution timeout
+  max_result_rows: 1000      # cap result sets before comparing
+
+serving:
+  host: "0.0.0.0"
+  port: 8000
+  max_new_tokens: 256
+  temperature: 0.0           # greedy decoding for deterministic SQL
+  self_correction_retries: 1
+
+reference_model:
+  provider: "openai"
+  model_id: "gpt-4o-mini"
+  max_tokens: 256
+
+benchmark:
+  n_concurrent: 10           # concurrent requests for throughput test
+  n_requests: 200            # total requests per benchmark run
+  gpu_hourly_cost_usd: 2.50  # e.g. RunPod RTX 4090; update to your actual rate

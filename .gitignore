@@ -1,0 +1,29 @@
+# Environment
+.env
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Data (large files — commit only scripts, not raw data)
+data/raw/
+data/processed/
+*.jsonl
+*.sqlite
+
+# Model weights
+training/outputs/
+*.bin
+*.safetensors
+*.pt
+
+# Experiment artifacts
+wandb/
+*.log
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
