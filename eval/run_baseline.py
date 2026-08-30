@@ -237,7 +237,7 @@ def main() -> None:
         score_path = RESULTS_DIR / f"{args.mode}_scores.json"
         score_predictions(
             pred_file,
-            Path(cfg["data"]["raw_dir"]).parent.parent / "raw" / "spider",
+            Path(cfg["data"]["raw_dir"]),
             timeout=cfg["eval"]["timeout_seconds"],
             out_path=score_path,
         )

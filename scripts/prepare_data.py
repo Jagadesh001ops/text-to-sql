@@ -25,50 +25,110 @@ import shutil
 import zipfile
 from pathlib import Path
 
-import requests
 from tqdm import tqdm
 
 from utils import build_prompt, get_logger, load_config, schema_to_text
 
 log = get_logger("prepare_data")
 
-# Spider is hosted on Yale's site and HuggingFace
-SPIDER_HF_URL = (
-    "https://huggingface.co/datasets/spider/resolve/main/data/spider.zip"
-)
-
 
 # ── Download ──────────────────────────────────────────────────────────────────
 
 def download_spider(raw_dir: Path) -> None:
-    """Download and unzip Spider into raw_dir/spider/ if not already present."""
+    """Download Spider via the HuggingFace datasets library into raw_dir/spider/."""
     spider_dir = raw_dir / "spider"
-    if spider_dir.exists() and any(spider_dir.iterdir()):
-        log.info("Spider already downloaded at %s — skipping.", spider_dir)
+    already_complete = (
+        spider_dir.exists()
+        and (spider_dir / "tables.json").exists()
+        and (spider_dir / "database").exists()
+        and (spider_dir / "train_spider.json").exists()
+        and (spider_dir / "dev.json").exists()
+    )
+    if already_complete:
+        log.info("Spider already complete at %s — skipping.", spider_dir)
         return
 
     raw_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = raw_dir / "spider.zip"
+    spider_dir.mkdir(parents=True, exist_ok=True)
 
-    log.info("Downloading Spider dataset from HuggingFace …")
-    token = os.getenv("HF_TOKEN")  # set HF_TOKEN env var if dataset is gated
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    log.info("Downloading Spider via HuggingFace datasets library …")
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        raise ImportError(
+            "The 'datasets' package is required: pip install datasets"
+        )
 
-    with requests.get(SPIDER_HF_URL, headers=headers, stream=True, timeout=120) as r:
-        r.raise_for_status()
-        total = int(r.headers.get("content-length", 0))
-        with open(zip_path, "wb") as f, tqdm(
-            total=total, unit="B", unit_scale=True, desc="spider.zip"
-        ) as bar:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-                bar.update(len(chunk))
+    token = os.getenv("HF_TOKEN")
+    ds = load_dataset("xlangai/spider", token=token)
 
-    log.info("Extracting …")
+    # Spider ships train/validation splits and a tables.json.
+    # Persist splits as JSON so the rest of the pipeline reads them as-is.
+    import json as _json
+
+    def _save_split(split_name: str, hf_split_name: str) -> None:
+        out = spider_dir / f"{split_name}.json"
+        if out.exists():
+            return
+        records = [dict(r) for r in ds[hf_split_name]]
+        with open(out, "w") as f:
+            _json.dump(records, f)
+        log.info("Saved %d records → %s", len(records), out)
+
+    _save_split("train_spider", "train")
+    _save_split("dev", "validation")
+
+    # tables.json and SQLite databases are NOT in the HF parquet files.
+    # Download the full Spider zip from Yale (Google Drive) for those.
+    tables_path = spider_dir / "tables.json"
+    db_dir = spider_dir / "database"
+    if not tables_path.exists() or not db_dir.exists():
+        _download_yale_zip(raw_dir, spider_dir)
+
+    log.info("Spider ready at %s", spider_dir)
+
+
+def _download_yale_zip(raw_dir: Path, spider_dir: Path) -> None:
+    """Download the official Spider zip (tables.json + databases) from Google Drive."""
+    try:
+        import gdown
+    except ImportError:
+        raise ImportError("pip install gdown  — needed to fetch Spider from Google Drive")
+
+    zip_path = raw_dir / "spider_yale.zip"
+    if not zip_path.exists():
+        log.info("Downloading Spider zip from Yale (Google Drive) …")
+        # Official Spider dataset download link from yale-lily.github.io/spider
+        gdown.download(
+            id="1TqleXec_OykOYFREKKtschzY29dUcVAQ",
+            output=str(zip_path),
+            quiet=False,
+        )
+
+    log.info("Extracting Spider zip …")
+    import tempfile
     with zipfile.ZipFile(zip_path) as zf:
-        zf.extractall(raw_dir)
-    zip_path.unlink()
-    log.info("Spider extracted to %s", spider_dir)
+        # The zip nests everything under a `spider/` directory — extract to a temp
+        # dir then move only what we need so we don't clobber the HF-downloaded files.
+        with tempfile.TemporaryDirectory() as tmp:
+            zf.extractall(tmp)
+            tmp_spider = Path(tmp) / "spider"
+            if not tmp_spider.exists():
+                # Some releases put files directly at the root
+                tmp_spider = Path(tmp)
+
+            tables_src = tmp_spider / "tables.json"
+            db_src = tmp_spider / "database"
+
+            if tables_src.exists() and not (spider_dir / "tables.json").exists():
+                shutil.copy(tables_src, spider_dir / "tables.json")
+                log.info("Installed tables.json")
+
+            if db_src.exists() and not (spider_dir / "database").exists():
+                shutil.copytree(db_src, spider_dir / "database")
+                log.info("Installed database/ (%d DBs)", len(list(db_src.iterdir())))
+
+    zip_path.unlink(missing_ok=True)  # free space after extraction
 
 
 # ── Schema parsing ────────────────────────────────────────────────────────────
