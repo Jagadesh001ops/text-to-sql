@@ -1,0 +1,24 @@
+# ── Dev / no-GPU requirements ──────────────────────────────────────────────────
+# Install this on your local machine to work on Phases 0-2 (data prep + eval)
+# without needing a GPU. Install requirements.txt on the rented GPU for training.
+
+# Data & utilities
+datasets>=2.19.0
+pandas>=2.2.0
+numpy>=1.26.0
+tqdm>=4.66.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+pydantic>=2.7.0
+rich>=13.7.0
+pyyaml>=6.0
+
+# SQL parsing (used by scorer)
+sqlglot>=23.0.0
+
+# API reference eval (GPT-4o-mini)
+openai>=1.25.0
+
+# Dev tools
+pytest>=8.0.0
+black>=24.0.0
