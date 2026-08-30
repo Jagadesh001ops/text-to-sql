@@ -28,11 +28,11 @@ log = get_logger("train")
 
 
 def build_training_args(cfg: dict, output_dir: str, run_name: str):
-    """Build HuggingFace TrainingArguments from config."""
-    from transformers import TrainingArguments
+    """Build TRL SFTConfig (superset of TrainingArguments) from config."""
+    from trl import SFTConfig
 
     tc = cfg["training"]
-    return TrainingArguments(
+    return SFTConfig(
         output_dir=output_dir,
         run_name=run_name,
         num_train_epochs=tc["num_epochs"],
@@ -54,8 +54,9 @@ def build_training_args(cfg: dict, output_dir: str, run_name: str):
         greater_is_better=False,
         report_to="wandb" if os.getenv("WANDB_API_KEY") else "none",
         dataloader_num_workers=4,
-        group_by_length=True,         # reduces padding waste
+        group_by_length=True,
         remove_unused_columns=False,
+        max_seq_length=tc["max_seq_length"],
     )
 
 
@@ -85,7 +86,7 @@ def main() -> None:
     from datasets import load_dataset
     from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-    from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer
+    from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
 
     # ── W&B initialisation ────────────────────────────────────────────────────
     if os.getenv("WANDB_API_KEY"):
@@ -185,7 +186,6 @@ def main() -> None:
         eval_dataset=dataset["validation"],
         formatting_func=formatting_fn,
         data_collator=collator,
-        max_seq_length=tc["max_seq_length"],
     )
 
     log.info("Starting training …")

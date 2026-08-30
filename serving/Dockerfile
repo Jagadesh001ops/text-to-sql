@@ -22,7 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # ── Python deps ───────────────────────────────────────────────────────────────
-COPY requirements.txt .
 RUN pip install --no-cache-dir \
     torch==2.2.0 \
     vllm>=0.4.1 \

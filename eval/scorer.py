@@ -43,17 +43,34 @@ class TimeoutError(Exception):
 
 @contextmanager
 def time_limit(seconds: int):
-    """UNIX-only: raise TimeoutError if block takes longer than `seconds`."""
-    def handler(signum, frame):
-        raise TimeoutError("SQL execution timed out")
+    """Cross-platform timeout: uses SIGALRM on Unix, threading.Timer on Windows."""
+    if hasattr(signal, "SIGALRM"):
+        def handler(signum, frame):
+            raise TimeoutError("SQL execution timed out")
 
-    old = signal.signal(signal.SIGALRM, handler)
-    signal.alarm(seconds)
-    try:
-        yield
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old)
+        old = signal.signal(signal.SIGALRM, handler)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
+    else:
+        import threading
+
+        timer_fired = threading.Event()
+
+        def _fire():
+            timer_fired.set()
+
+        timer = threading.Timer(seconds, _fire)
+        timer.start()
+        try:
+            yield
+            if timer_fired.is_set():
+                raise TimeoutError("SQL execution timed out")
+        finally:
+            timer.cancel()
 
 
 # ── SQL execution ─────────────────────────────────────────────────────────────

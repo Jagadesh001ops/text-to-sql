@@ -68,7 +68,8 @@ def run_sweep(config_path: str = "configs/config.yaml") -> None:
             continue
 
         # 3. Score
-        from eval.scorer import score_predictions  # type: ignore
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "eval"))
+        from scorer import score_predictions  # type: ignore  # noqa: E402
         pred_file = Path("eval/results/finetuned_predictions.jsonl")
         score_path = Path(f"eval/results/sweep_{run['name']}_scores.json")
         agg = score_predictions(pred_file, spider_dir, out_path=score_path)
