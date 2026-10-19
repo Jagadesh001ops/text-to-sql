@@ -32,7 +32,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from utils import build_prompt, extract_sql, load_config  # noqa
+from utils import build_correction_prompt, build_prompt, extract_sql, load_config  # noqa
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -147,11 +147,7 @@ async def generate_with_correction(
         if err and MAX_RETRIES > 0:
             # Self-correction: feed the error back to the model
             correction_error = err
-            retry_prompt = (
-                f"{prompt}\n{sql}\n\n"
-                f"[ERROR] The above SQL failed with: {err}\n"
-                f"Please correct the SQL query.\n[SQL]"
-            )
+            retry_prompt = build_correction_prompt(prompt, sql, err)
             raw2 = await call_vllm(retry_prompt)
             sql = extract_sql(raw2)
             corrected = True

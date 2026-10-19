@@ -89,6 +89,16 @@ def build_prompt(schema_text: str, question: str, examples: list[dict] | None = 
     return "\n".join(parts)
 
 
+def build_correction_prompt(prompt: str, failed_sql: str, error: str) -> str:
+    """Re-prompt after a failed query: the original prompt, the bad SQL and the
+    database error, asking for a corrected query. Shared by serving and eval."""
+    return (
+        f"{prompt}\n{failed_sql}\n\n"
+        f"[ERROR] The above SQL failed with: {error}\n"
+        f"Please correct the SQL query.\n[SQL]"
+    )
+
+
 # Where the model starts writing past the query: a blank line or the next
 # prompt section (it sometimes continues with "[QUESTION]…[SQL]…" or "[SCHEMA]…").
 _SQL_STOP_MARKERS = ("\n\n", "\n[", "[QUESTION]", "[SCHEMA]", "[SQL]", "[SYSTEM]", "[ERROR]")
