@@ -27,37 +27,57 @@ from utils import get_logger, load_config  # noqa
 log = get_logger("train")
 
 
+CORE_ARGS = {
+    "output_dir", "num_train_epochs", "per_device_train_batch_size",
+    "gradient_accumulation_steps", "learning_rate", "eval_steps", "save_steps",
+}
+
+
 def build_training_args(cfg: dict, output_dir: str, run_name: str):
-    """Build TRL SFTConfig (superset of TrainingArguments) from config."""
+    """Build SFTConfig, keeping only fields the installed TRL/transformers accept."""
+    import dataclasses
+
     from trl import SFTConfig
 
     tc = cfg["training"]
-    return SFTConfig(
-        output_dir=output_dir,
-        run_name=run_name,
-        num_train_epochs=tc["num_epochs"],
-        per_device_train_batch_size=tc["per_device_train_batch_size"],
-        gradient_accumulation_steps=tc["gradient_accumulation_steps"],
-        learning_rate=tc["learning_rate"],
-        lr_scheduler_type=tc["lr_scheduler"],
-        warmup_steps=50,
-        fp16=tc["fp16"],
-        bf16=tc["bf16"],
-        logging_steps=tc["logging_steps"],
-        eval_strategy="steps",
-        eval_steps=tc["eval_steps"],
-        save_strategy="steps",
-        save_steps=tc["save_steps"],
-        save_total_limit=3,
-        load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
-        report_to="wandb" if os.getenv("WANDB_API_KEY") else "none",
-        dataloader_num_workers=4,
-        group_by_length=True,
-        remove_unused_columns=False,
-        max_seq_length=tc["max_seq_length"],
-    )
+    wanted = {
+        "output_dir": output_dir,
+        "run_name": run_name,
+        "num_train_epochs": tc["num_epochs"],
+        "per_device_train_batch_size": tc["per_device_train_batch_size"],
+        "gradient_accumulation_steps": tc["gradient_accumulation_steps"],
+        "learning_rate": tc["learning_rate"],
+        "lr_scheduler_type": tc["lr_scheduler"],
+        "warmup_steps": 50,
+        "fp16": tc["fp16"],
+        "bf16": tc["bf16"],
+        "logging_steps": tc["logging_steps"],
+        "eval_strategy": "steps",
+        "eval_steps": tc["eval_steps"],
+        "save_strategy": "steps",
+        "save_steps": tc["save_steps"],
+        "save_total_limit": 3,
+        "load_best_model_at_end": True,
+        "metric_for_best_model": "eval_loss",
+        "greater_is_better": False,
+        "report_to": "wandb" if os.getenv("WANDB_API_KEY") else "none",
+        "dataloader_num_workers": 4,
+        "dataset_text_field": "text",
+        # TRL renamed max_seq_length -> max_length; pass both, keep whichever exists
+        "max_seq_length": tc["max_seq_length"],
+        "max_length": tc["max_seq_length"],
+    }
+
+    accepted = {f.name for f in dataclasses.fields(SFTConfig)}
+    missing_core = CORE_ARGS - accepted
+    if missing_core:
+        raise RuntimeError(f"SFTConfig is missing core training args: {sorted(missing_core)}")
+
+    dropped = sorted(k for k in wanted if k not in accepted)
+    if dropped:
+        log.info("SFTConfig: skipping args not supported by this TRL version: %s", dropped)
+
+    return SFTConfig(**{k: v for k, v in wanted.items() if k in accepted})
 
 
 def main() -> None:
@@ -128,6 +148,13 @@ def main() -> None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
+    # Single "text" column: avoids TRL treating the "prompt" column as prompt/completion format
+    eos = tokenizer.eos_token
+    dataset = dataset.map(
+        lambda ex: {"text": f"{ex['prompt']}\n{ex['sql']}{eos}"},
+        remove_columns=dataset["train"].column_names,
+    )
+
     # ── Model in 4-bit ────────────────────────────────────────────────────────
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -158,25 +185,25 @@ def main() -> None:
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    def formatting_fn(examples: dict) -> list[str]:
-        """Append the gold SQL to each prompt for supervised fine-tuning."""
-        return [
-            f"{prompt}\n{sql}"
-            for prompt, sql in zip(examples["prompt"], examples["sql"])
-        ]
-
     # ── Training arguments ────────────────────────────────────────────────────
     output_dir = tc["output_dir"]
     training_args = build_training_args(cfg, output_dir, args.run_name)
 
     # ── Trainer ───────────────────────────────────────────────────────────────
+    import inspect
+
+    # Newer TRL/transformers renamed tokenizer= to processing_class=
+    tok_kwarg = (
+        "processing_class"
+        if "processing_class" in inspect.signature(SFTTrainer.__init__).parameters
+        else "tokenizer"
+    )
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
         args=training_args,
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
-        formatting_func=formatting_fn,
+        **{tok_kwarg: tokenizer},
     )
 
     log.info("Starting training …")
