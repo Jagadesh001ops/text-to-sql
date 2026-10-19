@@ -28,11 +28,9 @@ def main() -> None:
     cfg = load_config(args.config)
     model_id = cfg["model"]["base_id"]
 
-    hf_home = os.getenv("HF_HOME")
-    if hf_home:
-        log.info("HF_HOME = %s", hf_home)
-    else:
-        log.warning("HF_HOME not set — weights will be cached in ~/.cache/huggingface")
+    hf_home = os.getenv("HF_HOME", "/share/hpc-support/rsenthi/bertbase/hf_home")
+    os.environ["HF_HOME"] = hf_home
+    log.info("HF_HOME = %s", hf_home)
 
     log.info("Downloading tokenizer and model weights for: %s", model_id)
     log.info("This may take several minutes (~6 GB for Qwen2.5-3B-Instruct) …")
