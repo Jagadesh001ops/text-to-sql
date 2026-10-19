@@ -25,8 +25,8 @@ training:
   lr_scheduler: "cosine"
   output_dir: "training/outputs"
   logging_steps: 10
-  eval_steps: 200
-  save_steps: 200
+  eval_steps: 100
+  save_steps: 100   # frequent saves so 2-hr wall requeues lose at most ~100 steps
   fp16: false
   bf16: true   # set false if GPU doesn't support bf16
 
