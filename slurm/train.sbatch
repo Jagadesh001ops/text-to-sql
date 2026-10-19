@@ -16,6 +16,8 @@ source ~/.bashrc
 conda activate /share/csc591f26/jmuthuk/conda/envs/bert-compress
 
 export HF_HOME=/share/csc591f26/jmuthuk/hf_home
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
 export WANDB_API_KEY=$(cat ~/.wandb_key 2>/dev/null || echo "")
 
