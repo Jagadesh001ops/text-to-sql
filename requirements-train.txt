@@ -1,0 +1,40 @@
+# ── Training-only requirements (no GPU serving stack) ─────────────────────────
+# Use this on the HPC cluster login node:
+#   pip install -r requirements-train.txt
+#
+# For the full serving stack (vllm, fastapi, locust) use requirements.txt
+# on the inference machine after training is done.
+
+# ── Core ML stack ─────────────────────────────────────────────────────────────
+torch>=2.2.0
+torchvision
+torchaudio
+
+# ── HuggingFace ecosystem ─────────────────────────────────────────────────────
+transformers>=4.40.0
+datasets>=2.19.0
+accelerate>=0.29.0
+peft>=0.10.0
+bitsandbytes>=0.43.0
+trl>=0.8.6
+huggingface_hub>=0.22.0
+
+# ── Experiment tracking ───────────────────────────────────────────────────────
+wandb>=0.17.0
+
+# ── Data & evaluation ─────────────────────────────────────────────────────────
+sqlglot>=23.0.0
+pandas>=2.2.0
+numpy>=1.26.0
+tqdm>=4.66.0
+gdown>=5.1.0
+
+# ── OpenAI reference eval (optional) ─────────────────────────────────────────
+openai>=1.25.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+pydantic>=2.7.0
+rich>=13.7.0
+pyyaml>=6.0
+requests>=2.31.0
