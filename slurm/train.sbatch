@@ -2,7 +2,7 @@
 #SBATCH --job-name=text2sql_qlora
 #SBATCH --partition=gpu_partners
 #SBATCH --qos=short_gpu
-#SBATCH --gres=gpu:rtx6000ada:1        # verify with: sinfo -p gpu_partners -o "%G" | sort -u
+#SBATCH --gres=gpu:rtx_6000_pro:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=48G
@@ -13,13 +13,15 @@
 
 # ── Environment ───────────────────────────────────────────────────────────────
 source ~/.bashrc
-conda activate /share/csc591f26/jmuthuk/conda/envs/text2sql
+conda activate /share/csc591f26/jmuthuk/conda/envs/bert-compress
 
-export HF_HOME=/share/csc591f26/jmuthuk/hf_home
+export HF_HOME=/share/hpc-support/rsenthi/bertbase/hf_home
 export TOKENIZERS_PARALLELISM=false
 export WANDB_API_KEY=$(cat ~/.wandb_key 2>/dev/null || echo "")
 
 CODE_DIR=/share/csc591f26/jmuthuk/code/text-to-sql
+LOG_DIR=/share/csc591f26/jmuthuk/logs
+mkdir -p "$LOG_DIR"
 cd "$CODE_DIR"
 
 # ── Sanity checks ─────────────────────────────────────────────────────────────
