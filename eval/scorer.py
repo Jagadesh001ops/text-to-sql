@@ -21,16 +21,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import signal
 import sqlite3
 import sys
 import time
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from utils import get_logger, load_config  # noqa: E402
+from utils import extract_sql, get_logger, load_config  # noqa: E402
 
 log = get_logger("scorer")
 
@@ -81,13 +83,15 @@ def execute_sql(db_path: Path, sql: str, timeout: int = 10) -> tuple[list[tuple]
     Returns:
         (rows, error_message)  — rows is empty list on error.
     """
+    conn = None
     try:
         with time_limit(timeout):
             conn = sqlite3.connect(str(db_path))
-            conn.execute("PRAGMA journal_mode=WAL")
-            cursor = conn.execute(sql)
-            rows = cursor.fetchall()
-            conn.close()
+            # Some Spider DBs (e.g. wta_1) hold non-UTF-8 bytes in TEXT columns
+            conn.text_factory = lambda b: b.decode("utf-8", errors="replace")
+            # Predicted SQL must never modify the benchmark databases
+            conn.execute("PRAGMA query_only = ON")
+            rows = conn.execute(sql).fetchall()
             return rows, None
     except TimeoutError:
         return [], "TIMEOUT"
@@ -95,21 +99,111 @@ def execute_sql(db_path: Path, sql: str, timeout: int = 10) -> tuple[list[tuple]
         return [], str(e)
     except Exception as e:
         return [], f"UNEXPECTED: {e}"
+    finally:
+        if conn is not None:
+            conn.close()
 
 
-def normalise_result(rows: list[tuple]) -> frozenset[tuple]:
-    """Order-independent result comparison — convert to a frozenset of tuples.
+# ── Result comparison ─────────────────────────────────────────────────────────
+# Follows the Spider test-suite convention: row counts must match (duplicates
+# count), columns may come back in a different order, and row order only
+# matters when the gold query has a top-level ORDER BY.
 
-    Each value is lowercased (if string) and stripped to reduce surface-level
-    formatting differences.
+MAX_COLUMN_PERMUTATIONS = 1000
+
+
+def _norm_value(v: Any) -> Any:
+    """Normalise one cell: lowercase/strip strings, unify 2 and 2.0, round floats."""
+    if v is None:
+        return None
+    if isinstance(v, bytes):
+        v = v.decode("utf-8", errors="replace")
+    if isinstance(v, float):
+        return str(int(v)) if v.is_integer() else str(round(v, 6))
+    return str(v).strip().lower()
+
+
+def normalise_rows(rows: list[tuple]) -> list[tuple]:
+    return [tuple(_norm_value(v) for v in row) for row in rows]
+
+
+def has_top_level_order_by(sql: str) -> bool:
+    """True if ORDER BY appears outside any parenthesised subquery or literal."""
+    depth = 0
+    quote: str | None = None
+    masked = []
+    for ch in sql:
+        if quote:
+            if ch == quote:
+                quote = None
+            masked.append(" ")
+            continue
+        if ch in ("'", '"', "`"):
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(depth - 1, 0)
+        masked.append(ch if depth == 0 else " ")
+    return re.search(r"\border\s+by\b", "".join(masked), re.IGNORECASE) is not None
+
+
+def _column_permutations(pred: list[tuple], gold: list[tuple]):
+    """Yield column orderings of `pred` whose per-column values match `gold`'s.
+
+    Each yielded tuple maps gold column i -> pred column perm[i].
     """
-    normalised = set()
-    for row in rows:
-        norm_row = tuple(
-            str(v).strip().lower() if v is not None else None for v in row
-        )
-        normalised.add(norm_row)
-    return frozenset(normalised)
+    n = len(gold[0])
+    pred_cols = [Counter(r[j] for r in pred) for j in range(n)]
+    gold_cols = [Counter(r[i] for r in gold) for i in range(n)]
+    options = [[j for j in range(n) if pred_cols[j] == gold_cols[i]] for i in range(n)]
+
+    yielded = 0
+
+    def backtrack(i: int, used: set[int], perm: list[int]):
+        nonlocal yielded
+        if yielded >= MAX_COLUMN_PERMUTATIONS:
+            return
+        if i == n:
+            yielded += 1
+            yield tuple(perm)
+            return
+        for j in options[i]:
+            if j not in used:
+                used.add(j)
+                perm.append(j)
+                yield from backtrack(i + 1, used, perm)
+                perm.pop()
+                used.discard(j)
+
+    yield from backtrack(0, set(), [])
+
+
+def results_match(pred_rows: list[tuple], gold_rows: list[tuple], ordered: bool) -> bool:
+    """Compare two query results as multisets of rows (lists if `ordered`),
+    allowing the predicted columns to be in any order."""
+    if len(pred_rows) != len(gold_rows):
+        return False
+    if not gold_rows:
+        return True
+    pred, gold = normalise_rows(pred_rows), normalise_rows(gold_rows)
+    if len(pred[0]) != len(gold[0]):
+        return False
+
+    gold_counts = None if ordered else Counter(gold)
+    for perm in _column_permutations(pred, gold):
+        permuted = [tuple(row[j] for j in perm) for row in pred]
+        if ordered:
+            if permuted == gold:
+                return True
+        elif Counter(permuted) == gold_counts:
+            return True
+    return False
+
+
+def normalise_sql(sql: str) -> str:
+    """Lowercase, collapse whitespace and drop trailing semicolons."""
+    return re.sub(r"\s+", " ", sql.strip().rstrip(";").strip().lower())
 
 
 # ── Per-example scoring ───────────────────────────────────────────────────────
@@ -123,37 +217,34 @@ def score_example(
     """Score a single prediction.
 
     Returns a dict with:
-        exec_match  — bool: result sets match
-        exact_match — bool: SQL strings match (after normalisation)
+        exec_match  — bool: query results match (see results_match)
+        exact_match — bool: SQL strings equal after whitespace/case/semicolon
+                      normalisation. This is NOT Spider's exact-set-match metric.
         pred_error  — str | None: execution error for prediction
         gold_error  — str | None: execution error for gold (should always be None)
-        latency_ms  — float: time to execute predicted SQL
+        exec_ms     — float: time to execute predicted SQL (generation latency
+                      stays in the prediction record's latency_ms)
     """
     t0 = time.perf_counter()
     pred_rows, pred_error = execute_sql(db_path, sql_pred, timeout)
-    latency_ms = (time.perf_counter() - t0) * 1000
+    exec_ms = (time.perf_counter() - t0) * 1000
 
     gold_rows, gold_error = execute_sql(db_path, sql_gold, timeout)
 
     exec_match = (
         pred_error is None
         and gold_error is None
-        and normalise_result(pred_rows) == normalise_result(gold_rows)
+        and results_match(pred_rows, gold_rows, ordered=has_top_level_order_by(sql_gold))
     )
 
-    # Exact match: normalise whitespace and case
-    def _norm_sql(s: str) -> str:
-        import re
-        return re.sub(r"\s+", " ", s.strip().lower())
-
-    exact_match = _norm_sql(sql_pred) == _norm_sql(sql_gold)
+    exact_match = normalise_sql(sql_pred) == normalise_sql(sql_gold)
 
     return {
         "exec_match": exec_match,
         "exact_match": exact_match,
         "pred_error": pred_error,
         "gold_error": gold_error,
-        "latency_ms": round(latency_ms, 2),
+        "exec_ms": round(exec_ms, 2),
         "n_pred_rows": len(pred_rows),
         "n_gold_rows": len(gold_rows),
     }
@@ -191,7 +282,13 @@ def score_predictions(
             log.warning("DB not found: %s — skipping", db_path)
             continue
 
-        scores = score_example(db_path, rec["sql_pred"], rec["sql_gold"], timeout)
+        # Re-extract so prediction files written before extract_sql handled
+        # run-on output are cleaned too (idempotent on already-clean SQL).
+        sql_pred = extract_sql(rec["sql_pred"])
+        if sql_pred != rec["sql_pred"]:
+            rec = {**rec, "sql_pred": sql_pred, "sql_pred_raw": rec["sql_pred"]}
+
+        scores = score_example(db_path, sql_pred, rec["sql_gold"], timeout)
         results.append({**rec, **scores})
 
     # ── Aggregate ─────────────────────────────────────────────────────────────
@@ -212,6 +309,8 @@ def score_predictions(
         }
 
     agg["overall"] = _agg_tier(results)
+    agg["overall"]["gold_errors"] = sum(r["gold_error"] is not None for r in results)
+    agg["overall"]["cleaned_preds"] = sum("sql_pred_raw" in r for r in results)
 
     for tier in tiers:
         subset = [r for r in results if r.get("difficulty", "unknown") == tier]

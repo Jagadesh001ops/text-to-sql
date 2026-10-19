@@ -29,7 +29,9 @@ from pathlib import Path
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from utils import build_prompt, extract_sql, get_logger, load_config, schema_to_text  # noqa
+from utils import (  # noqa
+    GENERATION_STOP_STRINGS, build_prompt, extract_sql, get_logger, load_config, schema_to_text,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from scorer import score_predictions  # noqa
@@ -81,6 +83,10 @@ def hf_generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> tup
             max_new_tokens=max_new_tokens,
             do_sample=False,          # greedy — deterministic SQL
             pad_token_id=tokenizer.eos_token_id,
+            # stop when the model starts a new prompt section instead of
+            # running on to max_new_tokens
+            stop_strings=GENERATION_STOP_STRINGS,
+            tokenizer=tokenizer,
         )
     latency_ms = (time.perf_counter() - t0) * 1000
     # Decode only newly generated tokens
@@ -188,6 +194,7 @@ def run_evaluation(
                 sql_pred = extract_sql(raw_output)
                 error = None
             except Exception as e:
+                raw_output = ""
                 sql_pred = ""
                 lat_ms = 0.0
                 error = str(e)
@@ -199,6 +206,7 @@ def run_evaluation(
                 "db_id": rec["db_id"],
                 "question": rec["question"],
                 "sql_pred": sql_pred,
+                "raw_output": raw_output,
                 "sql_gold": rec["sql"],
                 "difficulty": rec.get("difficulty", "unknown"),
                 "latency_ms": round(lat_ms, 2),
