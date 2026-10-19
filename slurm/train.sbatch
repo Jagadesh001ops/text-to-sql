@@ -20,6 +20,7 @@ export TOKENIZERS_PARALLELISM=false
 export WANDB_API_KEY=$(cat ~/.wandb_key 2>/dev/null || echo "")
 
 CODE_DIR=/share/csc591f26/jmuthuk/code/text-to-sql
+# vllm is serving-only — not needed for training
 LOG_DIR=/share/csc591f26/jmuthuk/logs
 mkdir -p "$LOG_DIR"
 cd "$CODE_DIR"
