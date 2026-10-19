@@ -40,7 +40,7 @@ def build_training_args(cfg: dict, output_dir: str, run_name: str):
         gradient_accumulation_steps=tc["gradient_accumulation_steps"],
         learning_rate=tc["learning_rate"],
         lr_scheduler_type=tc["lr_scheduler"],
-        warmup_ratio=tc["warmup_ratio"],
+        warmup_steps=50,
         fp16=tc["fp16"],
         bf16=tc["bf16"],
         logging_steps=tc["logging_steps"],
