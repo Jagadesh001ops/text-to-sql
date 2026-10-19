@@ -67,6 +67,7 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=None, help="Override learning rate")
     parser.add_argument("--epochs", type=int, default=None, help="Override num epochs")
     parser.add_argument("--run-name", default="qwen-text2sql-qlora", help="W&B run name")
+    parser.add_argument("--resume-from", default=None, help="Resume training from a checkpoint directory")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -189,7 +190,7 @@ def main() -> None:
     )
 
     log.info("Starting training …")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume_from)
 
     # ── Save best checkpoint ──────────────────────────────────────────────────
     best_dir = Path(output_dir) / "best_checkpoint"
