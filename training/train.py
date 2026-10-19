@@ -87,7 +87,7 @@ def main() -> None:
     from datasets import load_dataset
     from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-    from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
+    from trl import SFTTrainer
 
     # ── W&B initialisation ────────────────────────────────────────────────────
     if os.getenv("WANDB_API_KEY"):
@@ -158,15 +158,6 @@ def main() -> None:
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    # ── Format: train only on the SQL completion (not the full prompt) ────────
-    # DataCollatorForCompletionOnlyLM masks the prompt tokens so loss is
-    # computed only on the "[SQL]…" completion part.
-    response_template = "[SQL]"
-    collator = DataCollatorForCompletionOnlyLM(
-        response_template=response_template,
-        tokenizer=tokenizer,
-    )
-
     def formatting_fn(examples: dict) -> list[str]:
         """Append the gold SQL to each prompt for supervised fine-tuning."""
         return [
@@ -186,7 +177,6 @@ def main() -> None:
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
         formatting_func=formatting_fn,
-        data_collator=collator,
     )
 
     log.info("Starting training …")

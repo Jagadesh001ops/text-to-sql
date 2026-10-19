@@ -28,7 +28,7 @@ def main() -> None:
     cfg = load_config(args.config)
     model_id = cfg["model"]["base_id"]
 
-    hf_home = os.getenv("HF_HOME", "/share/hpc-support/rsenthi/bertbase/hf_home")
+    hf_home = os.getenv("HF_HOME", "/share/csc591f26/jmuthuk/hf_home")
     os.environ["HF_HOME"] = hf_home
     log.info("HF_HOME = %s", hf_home)
 
