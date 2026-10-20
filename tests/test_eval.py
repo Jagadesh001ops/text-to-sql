@@ -152,3 +152,24 @@ def test_predicted_sql_cannot_modify_db(db):
 def test_exact_match_ignores_trailing_semicolon(db):
     r = score_example(db, "SELECT name FROM singer", "select name  from singer;")
     assert r["exact_match"]
+
+
+# ── result_signature ──────────────────────────────────────────────────────────
+
+from scorer import result_signature  # noqa: E402
+
+
+def test_signature_ignores_row_and_column_order():
+    a = [(1, "france"), (2, "usa")]
+    b = [("usa", 2), ("france", 1)]
+    assert result_signature(a) == result_signature(b)
+
+
+def test_signature_distinguishes_values_and_duplicates():
+    assert result_signature([(1,)]) != result_signature([(2,)])
+    assert result_signature([(1,)]) != result_signature([(1,), (1,)])
+
+
+def test_signature_handles_nulls_and_empty():
+    assert result_signature([(None, "a")]) == result_signature([("a", None)])
+    assert result_signature([]) == ()

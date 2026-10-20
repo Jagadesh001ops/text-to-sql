@@ -201,6 +201,25 @@ def results_match(pred_rows: list[tuple], gold_rows: list[tuple], ordered: bool)
     return False
 
 
+def result_signature(rows: list[tuple]) -> tuple:
+    """Hashable key for a query result, invariant to row order and column order.
+
+    Results that results_match(..., ordered=False) treats as equal get the same
+    key; used to group candidate queries by the answer they return.
+    """
+    norm = normalise_rows(rows)
+    if not norm:
+        return ()
+
+    def sortable(v: str | None) -> tuple[bool, str]:
+        return (v is None, v or "")
+
+    ncols = len(norm[0])
+    col_sigs = [tuple(sorted(sortable(r[j]) for r in norm)) for j in range(ncols)]
+    col_order = sorted(range(ncols), key=lambda j: col_sigs[j])
+    return (ncols, tuple(sorted(tuple(sortable(r[j]) for j in col_order) for r in norm)))
+
+
 def normalise_sql(sql: str) -> str:
     """Lowercase, collapse whitespace and drop trailing semicolons."""
     return re.sub(r"\s+", " ", sql.strip().rstrip(";").strip().lower())

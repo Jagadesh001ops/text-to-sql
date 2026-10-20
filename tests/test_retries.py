@@ -97,3 +97,65 @@ def test_working_query_is_not_retried(setup):
     gen.outputs = [GOOD]
     rec, = _read(run_baseline.run_evaluation("finetuned", cfg, tag="t", retries=2))
     assert len(calls) == 1 and "failed_attempts" not in rec
+
+
+# ── Majority voting ───────────────────────────────────────────────────────────
+
+GOOD_ALT = "SELECT DISTINCT PetType FROM pets"   # same result as GOOD
+WRONG = "SELECT 'cat' FROM pets"
+
+
+@pytest.fixture
+def sampler(setup, monkeypatch):
+    cfg, calls, gen = setup
+    sample_calls = []
+
+    def fake_sample(model, tokenizer, prompt, n, max_new_tokens, temperature):
+        sample_calls.append((n, temperature))
+        return fake_sample.outputs[:n], 5.0
+
+    monkeypatch.setattr(run_baseline, "hf_sample", fake_sample)
+    return cfg, gen, fake_sample, sample_calls
+
+
+def test_vote_picks_majority_result(sampler):
+    cfg, gen, sample, sample_calls = sampler
+    gen.outputs = [WRONG]
+    sample.outputs = [GOOD, GOOD_ALT, BAD]
+    rec, = _read(run_baseline.run_evaluation("finetuned", cfg, tag="t", vote_samples=4))
+    assert rec["sql_pred"] == GOOD
+    assert rec["vote"]["winner_votes"] == 2 and rec["vote"]["greedy_sql"] == WRONG
+    assert sample_calls == [(3, 0.7)]
+    assert rec["latency_ms"] == 6.0
+
+
+def test_vote_tie_keeps_greedy(sampler):
+    cfg, gen, sample, _ = sampler
+    gen.outputs = [WRONG]
+    sample.outputs = [GOOD]
+    rec, = _read(run_baseline.run_evaluation("finetuned", cfg, tag="t", vote_samples=2))
+    assert rec["sql_pred"] == WRONG
+
+
+def test_vote_skips_failing_candidates(sampler):
+    cfg, gen, sample, _ = sampler
+    gen.outputs = [BAD]
+    sample.outputs = [BAD, BAD, GOOD]
+    rec, = _read(run_baseline.run_evaluation("finetuned", cfg, tag="t", vote_samples=4))
+    assert rec["sql_pred"] == GOOD and rec["vote"]["winner_votes"] == 1
+
+
+def test_vote_with_no_runnable_candidate_falls_back_to_retries(sampler):
+    cfg, gen, sample, _ = sampler
+    gen.outputs = [BAD, GOOD]
+    sample.outputs = [BAD]
+    rec, = _read(run_baseline.run_evaluation("finetuned", cfg, tag="t", vote_samples=2, retries=1))
+    assert rec["vote"]["winner_votes"] == 0
+    assert rec["sql_pred"] == GOOD and len(rec["failed_attempts"]) == 1
+
+
+def test_no_vote_by_default(sampler):
+    cfg, gen, sample, sample_calls = sampler
+    gen.outputs = [GOOD]
+    rec, = _read(run_baseline.run_evaluation("finetuned", cfg, tag="t"))
+    assert sample_calls == [] and "vote" not in rec
