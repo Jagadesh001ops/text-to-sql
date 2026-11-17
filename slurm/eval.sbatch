@@ -20,6 +20,8 @@ TAG=${3:-$MODE}
 shift $(( $# < 3 ? $# : 3 ))
 
 source ~/.bashrc
+# Hazel moved to CUDA 13.2; jobs on older CUDA can hang without output
+module load cuda
 conda activate /share/csc591f26/jmuthuk/conda/envs/bert-compress
 
 export HF_HOME=/share/csc591f26/jmuthuk/hf_home
