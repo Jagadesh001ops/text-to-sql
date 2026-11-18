@@ -19,6 +19,7 @@ export PIP_CACHE_DIR="$WORK/pip_cache"
 export WANDB_DIR="$WORK/wandb"
 export LOG_DIR="$WORK/logs"
 export TOKENIZERS_PARALLELISM=false
+export PYTHONNOUSERSITE=1   # don't let ~/.local packages shadow the env's
 mkdir -p "$HF_HOME" "$PIP_CACHE_DIR" "$WANDB_DIR" "$LOG_DIR"
 
 # Make `conda activate` usable in a non-interactive script. ~/.bashrc often

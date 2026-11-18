@@ -18,12 +18,16 @@ fi
 conda activate "$ENV_PREFIX"
 echo ">>> Using python: $(which python)"
 echo ">>> Installing packages…"
+# `python -m pip` = the env's own pip. A bare `pip` can resolve to the system
+# or ~/.local pip (wrong Python → "no matching distribution").
+export PYTHONNOUSERSITE=1   # ignore ~/.local packages; install into the env only
+python -m pip --version
 
 # CUDA 13.x wheels to match Hazel's 13.2 driver.
-pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu130
+python -m pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu130
 
 # Pinned to the set train.py was smoke-tested against.
-pip install \
+python -m pip install \
     transformers==5.16.1 trl==1.12.0 peft==0.20.0 bitsandbytes==0.50.2 \
     accelerate datasets sqlglot pandas numpy tqdm rich pyyaml \
     python-dotenv openai wandb
