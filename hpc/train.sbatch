@@ -22,6 +22,9 @@ source hpc/env.sh
 activate_env
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1   # compute nodes hang on network
 export WANDB_API_KEY=$(cat ~/.wandb_key 2>/dev/null || echo "")
+# Log W&B to local files ($WANDB_DIR); upload later from the login node with:
+#   wandb sync /share/csc591f26/jmuthuk/wandb/wandb/offline-run-*
+export WANDB_MODE=offline
 cd "$PROJECT_DIR"
 
 echo "=== $(date)  job $SLURM_JOB_ID  restart #${SLURM_RESTART_COUNT:-0}"
