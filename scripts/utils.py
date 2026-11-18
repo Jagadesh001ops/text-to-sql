@@ -87,8 +87,17 @@ def build_prompt(schema_text: str, question: str, examples: list[dict] | None = 
     return "\n".join(parts)
 
 
+# Prompt section markers. A base model that doesn't emit EOS keeps going and
+# re-emits these ("... [SQL] SELECT ... [SYSTEM] ..."), so we cut at the first one.
+PROMPT_MARKERS = ("[SQL]", "[SYSTEM]", "[SCHEMA]", "[QUESTION]", "[FEW-SHOT EXAMPLES]")
+
+
 def extract_sql(raw_output: str) -> str:
-    """Strip any accidental markdown fences from model output."""
+    """Pull a single SQL statement out of raw model output.
+
+    Strips markdown fences, then truncates at the first prompt marker, blank
+    line, or semicolon — whichever comes first.
+    """
     raw = raw_output.strip()
     if raw.startswith("```"):
         lines = raw.split("\n")
@@ -98,5 +107,11 @@ def extract_sql(raw_output: str) -> str:
             if line.strip().startswith("```"):
                 break
             inner.append(line)
-        return "\n".join(inner).strip()
-    return raw
+        raw = "\n".join(inner).strip()
+
+    cut = len(raw)
+    for marker in (*PROMPT_MARKERS, "```", "\n\n", ";"):
+        idx = raw.find(marker)
+        if idx != -1:
+            cut = min(cut, idx)
+    return raw[:cut].strip()

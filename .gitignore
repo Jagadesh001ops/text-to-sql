@@ -31,3 +31,7 @@ wandb/
 # OS
 .DS_Store
 Thumbs.db
+
+
+# graphify output
+graphify-out/

@@ -29,7 +29,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from utils import build_prompt, extract_sql, get_logger, load_config, schema_to_text  # noqa
+from utils import PROMPT_MARKERS, build_prompt, extract_sql, get_logger, load_config  # noqa
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from scorer import score_predictions  # noqa
@@ -64,6 +64,7 @@ def load_hf_model(model_id: str, load_in_4bit: bool = False):
         quantization_config=bnb_config,
         device_map="auto",
         trust_remote_code=True,
+        dtype=None if load_in_4bit else torch.bfloat16,
     )
     model.eval()
     return model, tokenizer
@@ -81,6 +82,10 @@ def hf_generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> tup
             max_new_tokens=max_new_tokens,
             do_sample=False,          # greedy — deterministic SQL
             pad_token_id=tokenizer.eos_token_id,
+            # Stop as soon as the model starts re-emitting prompt sections
+            # instead of burning all max_new_tokens on repetition.
+            stop_strings=list(PROMPT_MARKERS),
+            tokenizer=tokenizer,
         )
     latency_ms = (time.perf_counter() - t0) * 1000
     # Decode only newly generated tokens
@@ -90,6 +95,7 @@ def hf_generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> tup
 
 def load_finetuned_model(checkpoint_dir: str):
     """Load a fine-tuned model with merged LoRA adapters."""
+    import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -97,7 +103,7 @@ def load_finetuned_model(checkpoint_dir: str):
     base_model_id = load_config()["model"]["base_id"]
     tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir, trust_remote_code=True)
     base = AutoModelForCausalLM.from_pretrained(
-        base_model_id, device_map="auto", trust_remote_code=True
+        base_model_id, device_map="auto", trust_remote_code=True, dtype=torch.bfloat16
     )
     model = PeftModel.from_pretrained(base, checkpoint_dir)
     model = model.merge_and_unload()
@@ -154,7 +160,9 @@ def run_evaluation(
 
     # ── Instantiate the appropriate model ─────────────────────────────────────
     if mode in ("zero-shot", "few-shot"):
-        model, tokenizer = load_hf_model(cfg["model"]["base_id"], load_in_4bit=True)
+        # bf16, same precision as the merged fine-tuned model, so the baseline
+        # vs fine-tuned comparison isn't skewed by 4-bit quantisation loss.
+        model, tokenizer = load_hf_model(cfg["model"]["base_id"], load_in_4bit=False)
         generate_fn = lambda prompt: hf_generate(model, tokenizer, prompt, cfg["serving"]["max_new_tokens"])
 
     elif mode == "finetuned":
@@ -171,16 +179,30 @@ def run_evaluation(
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-    # ── Few-shot pool (reuse the prompts already baked into dev JSONL) ────────
-    # For zero-shot we rebuild without examples; for few-shot we use what's there.
-    # (prepare_data.py bakes few-shot examples into dev prompts when --few-shot > 0)
+    # ── Few-shot pool ─────────────────────────────────────────────────────────
+    # dev.jsonl prompts are zero-shot. For few-shot, rebuild each prompt with
+    # the first n_shot train examples (fixed, so every run sees the same shots).
+    shots: list[dict] | None = None
+    if mode == "few-shot":
+        shots = []
+        with open(cfg["data"]["train_file"]) as f:
+            for line in f:
+                if len(shots) >= n_shot:
+                    break
+                ex = json.loads(line)
+                shots.append({"schema_text": ex["schema_text"],
+                              "question": ex["question"], "sql": ex["sql"]})
+        log.info("Few-shot: using %d train examples per prompt", len(shots))
 
     pred_file = RESULTS_DIR / f"{mode}_predictions.jsonl"
     latencies: list[float] = []
 
     with open(pred_file, "w") as fout:
         for rec in tqdm(records, desc=f"Generating ({mode})"):
-            prompt = rec["prompt"]
+            if shots:
+                prompt = build_prompt(rec["schema_text"], rec["question"], examples=shots)
+            else:
+                prompt = rec["prompt"]
 
             try:
                 raw_output, lat_ms = generate_fn(prompt)

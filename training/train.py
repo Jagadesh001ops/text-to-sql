@@ -31,18 +31,23 @@ def build_training_args(cfg: dict, output_dir: str, run_name: str):
     """Build TRL SFTConfig (superset of TrainingArguments) from config."""
     from trl import SFTConfig
 
+    import torch
+
     tc = cfg["training"]
+    # bf16 needs Ampere or newer; fall back to fp16 on older cluster GPUs.
+    bf16 = tc["bf16"] and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     return SFTConfig(
         output_dir=output_dir,
         run_name=run_name,
         num_train_epochs=tc["num_epochs"],
         per_device_train_batch_size=tc["per_device_train_batch_size"],
+        per_device_eval_batch_size=tc["per_device_train_batch_size"] * 2,
         gradient_accumulation_steps=tc["gradient_accumulation_steps"],
         learning_rate=tc["learning_rate"],
         lr_scheduler_type=tc["lr_scheduler"],
-        warmup_ratio=tc["warmup_ratio"],
-        fp16=tc["fp16"],
-        bf16=tc["bf16"],
+        warmup_steps=tc["warmup_ratio"],  # float in [0, 1) = ratio of total steps
+        fp16=tc["fp16"] and not bf16,
+        bf16=bf16,
         logging_steps=tc["logging_steps"],
         eval_strategy="steps",
         eval_steps=tc["eval_steps"],
@@ -54,9 +59,10 @@ def build_training_args(cfg: dict, output_dir: str, run_name: str):
         greater_is_better=False,
         report_to="wandb" if os.getenv("WANDB_API_KEY") else "none",
         dataloader_num_workers=4,
-        group_by_length=True,
-        remove_unused_columns=False,
-        max_seq_length=tc["max_seq_length"],
+        max_length=tc["max_seq_length"],
+        # Prompt/completion dataset → loss only on the SQL completion tokens.
+        completion_only_loss=True,
+        gradient_checkpointing=True,
     )
 
 
@@ -67,6 +73,8 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=None, help="Override learning rate")
     parser.add_argument("--epochs", type=int, default=None, help="Override num epochs")
     parser.add_argument("--run-name", default="qwen-text2sql-qlora", help="W&B run name")
+    parser.add_argument("--resume-from", default=None,
+                        help="Checkpoint dir to resume from (used by the Slurm requeue loop)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -86,7 +94,7 @@ def main() -> None:
     from datasets import load_dataset
     from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-    from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
+    from trl import SFTTrainer
 
     # ── W&B initialisation ────────────────────────────────────────────────────
     if os.getenv("WANDB_API_KEY"):
@@ -117,6 +125,13 @@ def main() -> None:
         data_files={"train": train_file, "validation": dev_file},
     )
 
+    # TRL prompt/completion format: the prompt already ends with "[SQL]", the
+    # completion is the gold query (TRL appends EOS, so the model learns to stop).
+    dataset = dataset.map(
+        lambda ex: {"prompt": ex["prompt"], "completion": "\n" + ex["sql"]},
+        remove_columns=dataset["train"].column_names,
+    )
+
     log.info("Train: %d  |  Validation: %d", len(dataset["train"]), len(dataset["validation"]))
 
     # ── Tokenizer ─────────────────────────────────────────────────────────────
@@ -131,7 +146,7 @@ def main() -> None:
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
         bnb_4bit_use_double_quant=True,
     )
 
@@ -157,22 +172,6 @@ def main() -> None:
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    # ── Format: train only on the SQL completion (not the full prompt) ────────
-    # DataCollatorForCompletionOnlyLM masks the prompt tokens so loss is
-    # computed only on the "[SQL]…" completion part.
-    response_template = "[SQL]"
-    collator = DataCollatorForCompletionOnlyLM(
-        response_template=response_template,
-        tokenizer=tokenizer,
-    )
-
-    def formatting_fn(examples: dict) -> list[str]:
-        """Append the gold SQL to each prompt for supervised fine-tuning."""
-        return [
-            f"{prompt}\n{sql}"
-            for prompt, sql in zip(examples["prompt"], examples["sql"])
-        ]
-
     # ── Training arguments ────────────────────────────────────────────────────
     output_dir = tc["output_dir"]
     training_args = build_training_args(cfg, output_dir, args.run_name)
@@ -180,16 +179,16 @@ def main() -> None:
     # ── Trainer ───────────────────────────────────────────────────────────────
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         args=training_args,
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
-        formatting_func=formatting_fn,
-        data_collator=collator,
     )
 
     log.info("Starting training …")
-    trainer.train()
+    if args.resume_from:
+        log.info("Resuming from %s", args.resume_from)
+    trainer.train(resume_from_checkpoint=args.resume_from)
 
     # ── Save best checkpoint ──────────────────────────────────────────────────
     best_dir = Path(output_dir) / "best_checkpoint"
