@@ -21,9 +21,26 @@ export LOG_DIR="$WORK/logs"
 export TOKENIZERS_PARALLELISM=false
 mkdir -p "$HF_HOME" "$PIP_CACHE_DIR" "$WANDB_DIR" "$LOG_DIR"
 
-# Activate the env in a batch job (same pattern as your other Hazel jobs).
+# Make `conda activate` usable in a non-interactive script. ~/.bashrc often
+# returns non-zero when the shell isn't interactive, which kills a `set -e`
+# script silently, so source it with errexit off and then load conda's hook.
+load_conda() {
+    if ! command -v conda >/dev/null 2>&1; then
+        set +e
+        source ~/.bashrc
+        set -e
+    fi
+    if ! command -v conda >/dev/null 2>&1; then
+        echo "ERROR: conda not found (tried ~/.bashrc). Check 'which conda' on the login node."
+        return 1
+    fi
+    eval "$(conda shell.bash hook)"
+}
+
+# Activate the env in a batch job.
 activate_env() {
-    source ~/.bashrc
+    load_conda
     module load cuda     # Hazel is on CUDA 13.2; older CUDA hangs on the new GPUs
     conda activate "$ENV_PREFIX"
+    echo "Activated $ENV_PREFIX (python: $(which python))"
 }

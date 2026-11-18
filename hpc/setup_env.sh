@@ -10,11 +10,14 @@ echo "PROJECT_DIR=$PROJECT_DIR"
 echo "ENV_PREFIX=$ENV_PREFIX"
 echo "HF_HOME=$HF_HOME"
 
-source ~/.bashrc
+load_conda
 if [ ! -d "$ENV_PREFIX" ]; then
+    echo ">>> Creating conda env (a few minutes)…"
     conda create -y -p "$ENV_PREFIX" python=3.11
 fi
 conda activate "$ENV_PREFIX"
+echo ">>> Using python: $(which python)"
+echo ">>> Installing packages…"
 
 # CUDA 13.x wheels to match Hazel's 13.2 driver.
 pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu130
