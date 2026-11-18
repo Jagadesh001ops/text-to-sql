@@ -13,7 +13,7 @@ echo "HF_HOME=$HF_HOME"
 load_conda
 if [ ! -d "$ENV_PREFIX" ]; then
     echo ">>> Creating conda env (a few minutes)…"
-    conda create -y -p "$ENV_PREFIX" python=3.11
+    conda create -y -p "$ENV_PREFIX" python=3.11 pip
 fi
 conda activate "$ENV_PREFIX"
 echo ">>> Using python: $(which python)"
@@ -21,6 +21,10 @@ echo ">>> Installing packages…"
 # `python -m pip` = the env's own pip. A bare `pip` can resolve to the system
 # or ~/.local pip (wrong Python → "no matching distribution").
 export PYTHONNOUSERSITE=1   # ignore ~/.local packages; install into the env only
+if ! python -m pip --version >/dev/null 2>&1; then
+    echo ">>> pip missing from env, installing it…"
+    python -m ensurepip --upgrade || conda install -y -p "$ENV_PREFIX" pip
+fi
 python -m pip --version
 
 # CUDA 13.x wheels to match Hazel's 13.2 driver.
