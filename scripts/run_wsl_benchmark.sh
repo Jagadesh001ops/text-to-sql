@@ -110,11 +110,17 @@ start_vllm() {  # start_vllm <gpu-memory-utilization> [extra args]
     VLLM_PID=$!
     wait_for "http://127.0.0.1:$VLLM_PORT/health" "$VLLM_PID" "vLLM" logs/vllm.log 900
 }
+# On an 8 GB card the model (5.8 GiB) + CUDA's own ~1 GiB overhead under WSL leave almost nothing
+# at the default 0.85, so the ladder raises the share and drops CUDA graphs / concurrency / context.
 status "starting vLLM (util 0.85)"
 if ! start_vllm 0.85; then
     kill $VLLM_PID 2>/dev/null || true; sleep 5
-    status "retrying vLLM leaner: util 0.92 + --enforce-eager"
-    start_vllm 0.92 --enforce-eager
+    status "retrying vLLM leaner: util 0.98, --enforce-eager, 32 seqs"
+    if ! start_vllm 0.98 --enforce-eager --max-num-seqs 32; then
+        kill $VLLM_PID 2>/dev/null || true; sleep 5
+        status "retrying vLLM leanest: util 0.995, 16 seqs, max-model-len 1536"
+        start_vllm 0.995 --enforce-eager --max-num-seqs 16 --max-model-len 1536
+    fi
 fi
 status "vLLM: $(grep -E 'GPU KV cache size|Maximum concurrency' logs/vllm.log | tr '\n' ' ' | cut -c1-200)"
 
