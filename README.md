@@ -21,8 +21,9 @@ Spider dev set, all 1,034 examples. **Exec Acc** = the predicted SQL returns the
 | Zero-shot | 55.9% | — | — |
 | 3-shot | 60.8% | — | — |
 | **Fine-tuned (QLoRA)** | **71.4%** | — | — |
-| Fine-tuned + execution retry | *planned* | — | — |
-| Fine-tuned + execution voting | *planned* | — | — |
+| Fine-tuned + execution retry (error fed back, ≤2 retries) | 72.5% | — | — |
+| Fine-tuned + execution retry (resample, ≤2 retries) | 72.9% | — | — |
+| Fine-tuned + execution voting (8 candidates) | *running* | — | — |
 
 All rows are Qwen2.5-3B-Instruct. Latency and cost come from the served system (vLLM on one GPU) and are filled in once serving is benchmarked.
 
@@ -33,10 +34,26 @@ All rows are Qwen2.5-3B-Instruct. Latency and cost come from the served system (
 | Zero-shot | 76.2% | 57.8% | 41.3% | 35.7% | 55.9% |
 | 3-shot | 82.3% | 64.1% | 50.6% | 31.0% | 60.8% |
 | **Fine-tuned (QLoRA)** | **88.7%** | **75.8%** | **61.0%** | **44.6%** | **71.4%** |
+| Fine-tuned + retry (feedback) | 89.1% | 76.9% | 63.4% | 45.8% | 72.5% |
+| Fine-tuned + retry (resample) | 88.7% | 77.1% | 63.4% | 48.2% | 72.9% |
 
 - **Fine-tuning is the largest single step:** +15.5 points over zero-shot and +10.5 over 3-shot, with gains in every tier, including extra-hard (+8.9 over zero-shot), where few-shot prompting had *lost* ground. The execution error rate (SQL that fails to run) nearly halves, from 18–19% to 10.5%.
 - Accuracy drops steadily with query complexity in every configuration; even after fine-tuning, about a quarter of extra-hard queries fail to execute (nested subqueries, set operations, multi-way joins).
 - 3-shot prompting adds +4.9 points overall, concentrated in easy–hard (+6 to +9), but *loses* 4.8 points on extra-hard queries. The 3 fixed examples are single-table queries (one easy, two medium) with no joins, nesting or set operations, which likely biases the model toward flat SQL where nesting is needed.
+
+### Execution feedback: retry when the SQL fails to run
+
+The database is used as a verifier: if the generated query errors, the model is asked again, up to twice. Of the 1,034 first attempts, **109 (10.5%) failed to run**.
+
+| Retry style | Failed queries now running | Newly correct | Exec Acc | Error rate |
+|---|---|---|---|---|
+| None (fine-tuned baseline) | — | — | 71.4% | 10.5% |
+| Feedback: re-prompt with the failed SQL and the database error | 40 of 109 | +12 | 72.5% (+1.2) | 6.7% |
+| Resample: draw a fresh answer to the original prompt (T=0.7) | 33 of 109 | +16 | 72.9% (+1.5) | 7.4% |
+
+- Retrying adds **+1.2 to +1.5 points** and cuts the share of queries that fail to run by about a third. Only queries that failed are retried, so the cost is one or two extra generations for about 1 in 10 queries.
+- The two styles are not distinguishable here: they differ by 4 questions, and resampling is random (one run, no repeats). Feedback gets more queries running, but only about 30% of those are also correct (12 of 40), against about half for resampling (16 of 33). A plausible reason is that the model never saw the `[ERROR]` re-prompt format during fine-tuning, so it tends to produce a query that runs but answers the wrong question.
+- About three quarters of the remaining wrong answers are queries that run and return the wrong result (about 20% of all queries, against 7% that fail to run), which retrying cannot fix: nothing signals that they are wrong.
 
 ### Fine-tuning: which checkpoint ships
 
@@ -47,7 +64,7 @@ All rows are Qwen2.5-3B-Instruct. Latency and cost come from the served system (
 
 Validation loss bottomed out at step 400 and rose afterwards; the extra two epochs cost 2.0 points of execution accuracy, mostly on medium and extra-hard queries (−3.6 each; hard queries improved by 2.3), which suggests the model starts to overfit Spider's training databases. The shipped model is the step-400 checkpoint.
 
-<sub>Setup: greedy decoding, bf16, max 256 new tokens; 3-shot uses the same 3 fixed training examples in every prompt. Fine-tuning: QLoRA (4-bit NF4 base, LoRA r=16 on q/k/v/o, 7.4M trainable parameters) on Spider's 7,000 training examples, whose databases do not overlap with dev; for evaluation the adapter is merged into the bf16 base and prompted zero-shot. Caveat: Spider's test set is not used here, so the dev set served both to pick the checkpoint (by validation loss, among the saved checkpoints) and to report results; the selection used loss rather than accuracy, so the bias is small but non-zero. Spider dev ships without difficulty labels, so tiers are computed from the gold SQL with Spider's official hardness rules (`eval/hardness.py`), which reproduce the published dev split counts (easy and medium exact, hard/extra within 2 queries). Remaining rows are filled in as runs complete.</sub>
+<sub>Setup: greedy decoding, bf16, max 256 new tokens; 3-shot uses the same 3 fixed training examples in every prompt. Fine-tuning: QLoRA (4-bit NF4 base, LoRA r=16 on q/k/v/o, 7.4M trainable parameters) on Spider's 7,000 training examples, whose databases do not overlap with dev; for evaluation the adapter is merged into the bf16 base and prompted zero-shot. Caveat: Spider's test set is not used here, so the dev set served both to pick the checkpoint (by validation loss, among the saved checkpoints) and to report results; the selection used loss rather than accuracy, so the bias is small but non-zero. Spider dev ships without difficulty labels, so tiers are computed from the gold SQL with Spider's official hardness rules (`eval/hardness.py`), which reproduce the published dev split counts (easy and medium exact, hard/extra within 2 queries). Retry runs reuse the greedy first answer from the plain fine-tuned run (greedy decoding is deterministic; checked identical on a sample between two different GPUs) and generate only for the failing queries; they ran on a laptop RTX 5070, the others on Hazel's RTX 6000 Pro. Remaining rows are filled in as runs complete.</sub>
 
 ---
 

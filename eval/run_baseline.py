@@ -47,11 +47,13 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 _ST_DTYPES = {"BF16": "bfloat16", "F16": "float16", "F32": "float32"}
 
 
-def _read_safetensors(path: Path):
-    """Yield (name, cpu tensor) from a .safetensors file WITHOUT memory-mapping it.
+def load_safetensors_into(path: Path, params: dict, loaded: set, chunk_bytes: int = 32 * 2**20) -> None:
+    """Copy every tensor of a .safetensors file into `params[name]`, in small chunks.
 
-    A mapped 4 GB shard counts against Windows' commit limit on top of the model
-    already on the GPU; plain reads keep the peak to one tensor at a time.
+    No memory-mapping (a mapped 4 GB shard counts against Windows' commit limit on
+    top of the model already on the GPU) and no whole-tensor CPU copy: each tensor
+    streams from disk to the target in `chunk_bytes` pieces, so CPU memory stays tiny.
+    Shapes and dtypes must match the target exactly.
     """
     import struct
 
@@ -64,11 +66,24 @@ def _read_safetensors(path: Path):
         for name, meta in header.items():
             if name == "__metadata__":
                 continue
-            begin, end = meta["data_offsets"]
-            f.seek(data_start + begin)
-            buf = bytearray(f.read(end - begin))
             dtype = getattr(torch, _ST_DTYPES[meta["dtype"]])
-            yield name, torch.frombuffer(buf, dtype=dtype).reshape(meta["shape"])
+            target = params[name]
+            if tuple(meta["shape"]) != tuple(target.shape) or target.dtype != dtype:
+                raise RuntimeError(f"{name}: file has {meta['dtype']}{meta['shape']}, "
+                                   f"model has {target.dtype}{tuple(target.shape)}")
+            flat = target.data.view(-1)
+            itemsize = flat.element_size()
+            step = max(1, chunk_bytes // itemsize)
+            f.seek(data_start + meta["data_offsets"][0])
+            pos = 0
+            while pos < flat.numel():
+                n = min(step, flat.numel() - pos)
+                buf = bytearray(n * itemsize)
+                if f.readinto(buf) != len(buf):
+                    raise RuntimeError(f"{path.name}: truncated while reading {name}")
+                flat[pos:pos + n].copy_(torch.frombuffer(buf, dtype=dtype))
+                pos += n
+            loaded.add(name)
 
 
 def load_base_bf16(model_id: str):
@@ -100,9 +115,7 @@ def load_base_bf16(model_id: str):
     loaded: set[str] = set()
     with torch.no_grad():
         for shard in sorted(path.glob("*.safetensors")):
-            for name, tensor in _read_safetensors(shard):
-                params[name].copy_(tensor)
-                loaded.add(name)
+            load_safetensors_into(shard, params, loaded)
     if loaded != set(params):
         raise RuntimeError(f"weight mismatch: missing {sorted(set(params) - loaded)[:3]}, "
                            f"unexpected {sorted(loaded - set(params))[:3]}")
