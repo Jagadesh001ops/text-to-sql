@@ -13,8 +13,8 @@ Spider dev set, all 1,034 examples. **Exec Acc** = the predicted SQL returns the
 
 | Model | Exec Acc | Latency p95 | Cost / 1K queries |
 |---|---|---|---|
-| Qwen2.5-3B (zero-shot) | *running* | — | — |
-| Qwen2.5-3B (3-shot) | **57.9%** | — | — |
+| Qwen2.5-3B (zero-shot) | 53.4% | — | — |
+| Qwen2.5-3B (3-shot) | 57.9% | — | — |
 | **Qwen2.5-3B (fine-tuned)** | ***running*** | **—** | **$—** |
 | GPT-4o-mini (reference) | — | — | $— |
 
@@ -22,9 +22,11 @@ Spider dev set, all 1,034 examples. **Exec Acc** = the predicted SQL returns the
 
 | Model | Easy (248) | Medium (446) | Hard (172) | Extra (168) | Overall |
 |---|---|---|---|---|---|
+| Qwen2.5-3B (zero-shot) | 78.2% | 50.7% | 43.0% | 34.5% | 53.4% |
 | Qwen2.5-3B (3-shot) | 83.5% | 56.7% | 51.7% | 29.8% | 57.9% |
 
-Accuracy drops steadily with query complexity; the execution error rate rises from 6.0% on easy queries to 33.9% on extra-hard ones (nested subqueries, set operations, multi-way joins).
+- Accuracy drops steadily with query complexity for every model; execution errors (SQL that fails to run) climb from 6–8% on easy queries to 30–34% on extra-hard ones (nested subqueries, set operations, multi-way joins).
+- 3-shot prompting adds +4.5 points overall, concentrated in easy–hard (+5 to +9), but *loses* 4.7 points on extra-hard queries. The fixed examples are simple queries, which likely bias the model toward simple SQL shapes where nesting is needed.
 
 <sub>Setup: greedy decoding, bf16, max 256 new tokens; 3-shot uses the same 3 fixed training examples in every prompt. Spider dev ships without difficulty labels, so tiers are computed from the gold SQL with Spider's official hardness rules (`eval/hardness.py`), which reproduce the published dev split counts (easy and medium exact, hard/extra within 2 queries). Remaining rows are filled in as runs complete.</sub>
 
