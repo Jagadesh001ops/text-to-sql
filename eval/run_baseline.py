@@ -136,6 +136,8 @@ def run_evaluation(
     cfg: dict,
     n_shot: int = 0,
     limit: int | None = None,
+    checkpoint: str | None = None,
+    tag: str | None = None,
 ) -> Path:
     """Run inference on Spider dev set and write predictions JSONL.
 
@@ -168,7 +170,7 @@ def run_evaluation(
         generate_fn = lambda prompt: hf_generate(model, tokenizer, prompt, cfg["serving"]["max_new_tokens"])
 
     elif mode == "finetuned":
-        checkpoint = cfg["model"]["finetuned_dir"]
+        checkpoint = checkpoint or cfg["model"]["finetuned_dir"]
         model, tokenizer = load_finetuned_model(checkpoint)
         generate_fn = lambda prompt: hf_generate(model, tokenizer, prompt, cfg["serving"]["max_new_tokens"])
 
@@ -196,7 +198,7 @@ def run_evaluation(
                               "question": ex["question"], "sql": ex["sql"]})
         log.info("Few-shot: using %d train examples per prompt", len(shots))
 
-    pred_file = RESULTS_DIR / f"{mode}_predictions.jsonl"
+    pred_file = RESULTS_DIR / f"{tag or mode}_predictions.jsonl"
     latencies: list[float] = []
 
     with open(pred_file, "w") as fout:
@@ -249,16 +251,23 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None,
                         help="Evaluate only the first N examples (for quick smoke tests)")
     parser.add_argument("--config", default="configs/config.yaml")
+    parser.add_argument("--checkpoint", default=None,
+                        help="LoRA checkpoint dir for --mode finetuned "
+                             "(default: model.finetuned_dir in config)")
+    parser.add_argument("--tag", default=None,
+                        help="Name for the output files (default: the mode), "
+                             "e.g. finetuned-final -> finetuned-final_scores.json")
     parser.add_argument("--skip-scoring", action="store_true",
                         help="Only generate predictions; don't run the scorer")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
 
-    pred_file = run_evaluation(args.mode, cfg, n_shot=args.n_shot, limit=args.limit)
+    pred_file = run_evaluation(args.mode, cfg, n_shot=args.n_shot, limit=args.limit,
+                               checkpoint=args.checkpoint, tag=args.tag)
 
     if not args.skip_scoring:
-        score_path = RESULTS_DIR / f"{args.mode}_scores.json"
+        score_path = RESULTS_DIR / f"{args.tag or args.mode}_scores.json"
         score_predictions(
             pred_file,
             Path(cfg["data"]["raw_dir"]),

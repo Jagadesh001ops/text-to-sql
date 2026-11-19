@@ -3,6 +3,8 @@
 #   sbatch hpc/eval.sbatch zero-shot
 #   sbatch hpc/eval.sbatch few-shot
 #   sbatch --dependency=afterok:<TRAIN_JOB_ID> hpc/eval.sbatch finetuned
+# Extra args go straight to run_baseline.py, e.g. score a specific checkpoint:
+#   sbatch hpc/eval.sbatch finetuned --checkpoint training/outputs/checkpoint-1299 --tag finetuned-final
 # GPT-4o-mini needs no GPU: run `python eval/run_baseline.py --mode openai`
 # on your laptop or the login node.
 #SBATCH --job-name=t2sql_eval
@@ -16,7 +18,8 @@
 #SBATCH --output=/share/csc591f26/jmuthuk/logs/slurm_%x_%j.out
 set -eo pipefail
 
-MODE="${1:?usage: sbatch hpc/eval.sbatch <zero-shot|few-shot|finetuned>}"
+MODE="${1:?usage: sbatch hpc/eval.sbatch <zero-shot|few-shot|finetuned> [run_baseline.py args...]}"
+shift
 
 source hpc/env.sh
 activate_env
@@ -25,6 +28,6 @@ cd "$PROJECT_DIR"
 
 echo "=== $(date)  job $SLURM_JOB_ID  mode=$MODE"
 nvidia-smi --query-gpu=name,memory.total --format=csv
-python eval/run_baseline.py --mode "$MODE" --n-shot 3
+python eval/run_baseline.py --mode "$MODE" --n-shot 3 "$@"
 
-echo "Results: eval/results/${MODE}_predictions.jsonl, eval/results/${MODE}_scores.json"
+echo "Results written to eval/results/ (named by --tag if given, else ${MODE})"
