@@ -43,7 +43,7 @@ serving:
   port: 8000
   max_new_tokens: 256
   temperature: 0.0           # greedy decoding for deterministic SQL
-  self_correction_retries: 1
+  self_correction_retries: 2   # matches the evaluated setup (eval: --retries 2)
 
 benchmark:
   # ASSUMED price per GPU-hour, used only for the "$ / 1K queries" column. The Hazel
