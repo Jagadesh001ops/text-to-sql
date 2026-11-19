@@ -110,17 +110,15 @@ start_vllm() {  # start_vllm <gpu-memory-utilization> [extra args]
     VLLM_PID=$!
     wait_for "http://127.0.0.1:$VLLM_PORT/health" "$VLLM_PID" "vLLM" logs/vllm.log 900
 }
-# On an 8 GB card the model (5.8 GiB) + CUDA's own ~1 GiB overhead under WSL leave almost nothing
-# at the default 0.85, so the ladder raises the share and drops CUDA graphs / concurrency / context.
-status "starting vLLM (util 0.85)"
+# On an 8 GB card the model (5.8 GiB) plus ~1.2 GiB held by Windows/WSL leave vLLM's automatic KV
+# cache sizing with zero blocks at any gpu_memory_utilization (tried 0.85-0.995). Sizing the cache
+# explicitly works: util must stay below the free fraction at startup (~0.85), and
+# --kv-cache-memory 512 MiB gives ~14.5k tokens of cache (verified on an RTX 5070 Laptop, 8 GB).
+status "starting vLLM (util 0.85, automatic KV cache)"
 if ! start_vllm 0.85; then
     kill $VLLM_PID 2>/dev/null || true; sleep 5
-    status "retrying vLLM leaner: util 0.98, --enforce-eager, 32 seqs"
-    if ! start_vllm 0.98 --enforce-eager --max-num-seqs 32; then
-        kill $VLLM_PID 2>/dev/null || true; sleep 5
-        status "retrying vLLM leanest: util 0.995, 16 seqs, max-model-len 1536"
-        start_vllm 0.995 --enforce-eager --max-num-seqs 16 --max-model-len 1536
-    fi
+    status "retrying vLLM for a small GPU: util 0.84, explicit 512 MiB KV cache, --enforce-eager, 16 seqs"
+    start_vllm 0.84 --kv-cache-memory 536870912 --enforce-eager --max-num-seqs 16
 fi
 status "vLLM: $(grep -E 'GPU KV cache size|Maximum concurrency' logs/vllm.log | tr '\n' ' ' | cut -c1-200)"
 
