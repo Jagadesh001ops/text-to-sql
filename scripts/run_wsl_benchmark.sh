@@ -38,15 +38,26 @@ mkdir -p eval/results logs
 status "start. project=$PROJECT env=$ENVDIR"
 
 # 1. vLLM env (separate from training: vLLM pins its own torch)
+pip_retry() {   # pip_retry <logfile> <pip install args...>: WSL's DNS occasionally hiccups
+    local log="$1"; shift
+    for attempt in 1 2 3 4; do
+        if "$ENVDIR/bin/python" -m pip install "$@" > "$log" 2>&1; then return 0; fi
+        status "pip install failed (attempt $attempt), retrying in 20s: $(tail -1 "$log" | cut -c1-100)"
+        sleep 20
+    done
+    return 1
+}
 if ! "$ENVDIR/bin/python" -c "import vllm" 2>/dev/null; then
-    status "installing vLLM env (several minutes)"
+    status "installing vLLM (several minutes)"
     rm -rf "$ENVDIR"
     python3 -m venv --without-pip "$ENVDIR"
     [ -s "$HOME/get-pip.py" ] || curl -sSL https://bootstrap.pypa.io/get-pip.py -o "$HOME/get-pip.py"
     "$ENVDIR/bin/python" "$HOME/get-pip.py" -q
-    "$ENVDIR/bin/python" -m pip install vllm==0.34.0 > logs/pip_vllm.log 2>&1
-    "$ENVDIR/bin/python" -m pip install fastapi "uvicorn[standard]" httpx pydantic pyyaml tqdm rich sqlglot \
-        peft==0.20.0 pytest > logs/pip_libs.log 2>&1
+    pip_retry logs/pip_vllm.log vllm==0.34.0
+fi
+if ! "$ENVDIR/bin/python" -c "import peft, sqlglot, fastapi, uvicorn, httpx, yaml, tqdm, rich" 2>/dev/null; then
+    status "installing helper libraries"
+    pip_retry logs/pip_libs.log fastapi "uvicorn[standard]" httpx pydantic pyyaml tqdm rich sqlglot peft==0.20.0 pytest
 fi
 "$ENVDIR/bin/python" - <<'PY' 2>&1 | grep -v Warn | tee -a logs/env.log
 import torch, vllm
