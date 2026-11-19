@@ -59,6 +59,25 @@ if ! "$ENVDIR/bin/python" -c "import peft, sqlglot, fastapi, uvicorn, httpx, yam
     status "installing helper libraries"
     pip_retry logs/pip_libs.log fastapi "uvicorn[standard]" httpx pydantic pyyaml tqdm rich sqlglot peft==0.20.0 pytest
 fi
+# 1b. Triton compiles a small CUDA helper at startup and needs a C compiler plus Python.h.
+# Stock WSL Ubuntu has neither and `sudo` may need a password, so build a userland toolchain:
+# clang from the `ziglang` wheel, and the Python headers unpacked from the -dev package.
+# (With sudo you can instead run once: sudo apt install -y build-essential python3.12-dev)
+if ! command -v gcc >/dev/null 2>&1 || [ ! -f /usr/include/python3.12/Python.h ]; then
+    if [ ! -x "$HOME/bin/cc" ] || [ ! -f "$HOME/pyinc/usr/include/python3.12/Python.h" ]; then
+        status "building userland C toolchain for Triton"
+        mkdir -p "$HOME/bin" "$HOME/pyinc" "$HOME/debs"
+        pip_retry logs/pip_zig.log ziglang
+        printf '#!/bin/sh\nexec "%s/bin/python" -m ziglang cc "$@"\n' "$ENVDIR" > "$HOME/bin/cc"
+        chmod +x "$HOME/bin/cc"; ln -sf "$HOME/bin/cc" "$HOME/bin/gcc"
+        (cd "$HOME/debs" && apt-get download libpython3.12-dev > /dev/null 2>&1 \
+            && dpkg -x libpython3.12-dev_*.deb "$HOME/pyinc")
+    fi
+    export PATH="$HOME/bin:$PATH" CC="$HOME/bin/cc"
+    export CPATH="$HOME/pyinc/usr/include:$HOME/pyinc/usr/include/python3.12:$HOME/pyinc/usr/include/x86_64-linux-gnu/python3.12"
+fi
+export TRITON_LIBCUDA_PATH=/usr/lib/wsl/lib   # libcuda.so.1 lives here under WSL
+
 "$ENVDIR/bin/python" - <<'PY' 2>&1 | grep -v Warn | tee -a logs/env.log
 import torch, vllm
 print("torch", torch.__version__, "| cuda build", torch.version.cuda, "| gpu", torch.cuda.is_available(),
