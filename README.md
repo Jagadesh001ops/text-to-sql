@@ -20,12 +20,12 @@ Spider dev set, all 1,034 examples. **Exec Acc** = the predicted SQL returns the
 |---|---|---|---|
 | Zero-shot | 55.9% | — | — |
 | 3-shot | 60.8% | — | — |
-| **Fine-tuned (QLoRA)** | **71.4%** | — | — |
-| Fine-tuned + execution retry (error fed back, ≤2 retries) | 72.5% | — | — |
+| **Fine-tuned (QLoRA)** | **71.4%** | 2.0 s | 59 GPU-s ($0.04) |
+| Fine-tuned + execution retry (error fed back, ≤2 retries) | 72.5% | 4.2 s | 82 GPU-s ($0.06) |
 | Fine-tuned + execution retry (resample, ≤2 retries) | 72.9% | — | — |
 | **Fine-tuned + execution voting (8 candidates)** | **74.3%** | — | — |
 
-All rows are Qwen2.5-3B-Instruct. Latency and cost come from the served system (vLLM on one GPU) and are filled in once serving is benchmarked.
+All rows are Qwen2.5-3B-Instruct. **Latency p95 and cost are measured on the served system** (vLLM + FastAPI on one 8 GB laptop GPU) **at 16 concurrent requests**, the practical operating point there (details and caveats in [Serving](#serving-latency-throughput-and-cost)). Cost is GPU-seconds per 1,000 queries, with dollars at an *assumed* $2.50 per GPU-hour (a placeholder, not what this laptop costs). The retry row was measured through the API, where its accuracy is 72.6%. A dash means that configuration was not served; the voting row's cost is only measured offline (about 5× the extra generation time of a retry, see below).
 
 ### By difficulty
 
@@ -72,6 +72,33 @@ Retrying only helps when a query errors. Voting also catches queries that run bu
 - Voting changed the greedy answer for 78 of 1,034 questions (7.5%) and came out **30 questions ahead** overall. In 863 questions (83%) the winning result had at least 5 of the 8 votes, and in 654 (63%) all 8 candidates agreed. For 57 questions no candidate ran at all.
 - The gain is in the harder tiers: medium +3.6, hard +4.7, extra +4.2 points. Easy is flat (−0.4, one question), where the greedy answer was already right.
 - It costs about **5× the extra generation time of a retry for roughly twice the gain**, because all 8 candidates are generated for every question, not just the 1 in 10 that fail. Whether that trade is worth it depends on the latency and cost budget, which is what the serving benchmark is meant to answer.
+
+### Serving: latency, throughput and cost
+
+The fine-tuned model (adapter merged into the bf16 base) is served by **vLLM 0.34** behind a **FastAPI** layer on a single **RTX 5070 Laptop GPU (8 GB)** inside WSL2. Each pass sends all 1,034 dev questions at a fixed number of requests in flight, after a warm-up; none of the 1,034 × 6 requests failed.
+
+**Generate only** (the API returns the SQL, nothing is executed):
+
+| Requests in flight | Throughput | p50 | p95 | p99 | GPU-seconds / 1K queries | $ / 1K at $2.50/h |
+|---|---|---|---|---|---|---|
+| 1 | 1.3 QPS | 0.56 s | 1.7 s | 2.4 s | 757 | $0.53 |
+| 4 | 5.6 QPS | 0.53 s | 1.6 s | 2.3 s | 179 | $0.12 |
+| **16** | **16.9 QPS** | 0.70 s | 2.0 s | 3.0 s | **59** | **$0.04** |
+| 64 | 17.5 QPS | 3.4 s | 4.9 s | 5.7 s | 57 | $0.04 |
+
+**With the database as verifier** (the API executes the SQL read-only and retries up to twice with the error fed back):
+
+| Requests in flight | Throughput | p50 | p95 | p99 | Retried | GPU-seconds / 1K queries | $ / 1K |
+|---|---|---|---|---|---|---|---|
+| 1 | 1.0 QPS | 0.59 s | 3.2 s | 5.2 s | 11.1% | 998 | $0.69 |
+| 16 | 12.2 QPS | 0.74 s | 4.2 s | 6.6 s | 11.0% | 82 | $0.06 |
+
+- **Served accuracy matches the offline numbers:** 71.1% generate-only (offline 71.4%) and 72.6% with retries (offline 72.5%), i.e. serving with vLLM did not change the model's behaviour. With retries, easy/medium/hard/extra are 88.7% / 77.4% / 64.0% / 45.2%.
+- **Batching is the biggest cost lever:** at 16 requests in flight a query costs about 13× less GPU time than one at a time (59 vs 757 GPU-seconds per 1,000), while p95 latency barely moves (1.7 s → 2.0 s).
+- **The verifier costs about 40% more GPU time and doubles p95 latency** (59 → 82 GPU-seconds per 1,000 at 16 in flight; p95 2.0 s → 4.2 s) for **+1.6 accuracy points** (71.1% → 72.6%). Only the ~11% of queries that fail are generated twice or three times, so the median is almost unchanged (0.70 → 0.74 s).
+- **Throughput saturates at about 16 requests in flight:** at 64 it barely moves (17.5 QPS) and latency jumps to 3.4 s because requests queue. On this card the model (5.8 GiB) leaves only a 0.5 GiB KV cache (about 14.5k tokens, roughly 16 typical requests), so a larger GPU would saturate later; the shape of the curve, not the absolute numbers, is the transferable result.
+
+<sub>Setup: `scripts/run_wsl_benchmark.sh` (vLLM with `--enforce-eager`, `--max-num-seqs 16`, an explicit 512 MiB KV cache, 2,048-token context; the API's retry mode is error-fed-back, ≤2 retries, matching the offline experiment). One run per level, so differences of a few percent are within noise. The laptop GPU is shared with the Windows desktop, and the dollar figures use a placeholder GPU rate; GPU-seconds per 1,000 queries is the price-independent number. Voting and resampled retries were evaluated offline only.</sub>
 
 ### Fine-tuning: which checkpoint ships
 
