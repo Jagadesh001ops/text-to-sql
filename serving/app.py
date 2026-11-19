@@ -56,6 +56,11 @@ SAMPLE_TEMPERATURE = 0.7
 QUERY_TIMEOUT_S = cfg["eval"]["timeout_seconds"]
 MAX_RESULT_ROWS = 500
 
+# vLLM's OpenAI-compatible API accepts at most 4 stop sequences (it answers 400 otherwise).
+# These only save generation time: extract_sql() still cuts the answer at every marker.
+MAX_STOP_SEQUENCES = 4
+STOP_STRINGS = GENERATION_STOP_STRINGS[:MAX_STOP_SEQUENCES]
+
 _DB_ID = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 
@@ -118,7 +123,7 @@ async def call_vllm(client: httpx.AsyncClient, prompt: str, temperature: float =
             "prompt": prompt,
             "max_tokens": MAX_NEW_TOKENS,
             "temperature": temperature,
-            "stop": GENERATION_STOP_STRINGS,
+            "stop": STOP_STRINGS,
         },
     )
     resp.raise_for_status()

@@ -69,7 +69,10 @@ def test_call_vllm_sends_raw_prompt_to_completions_endpoint():
     assert seen["url"].endswith("/completions") and "chat" not in seen["url"]
     # raw text, not chat messages: a chat template would change what the model sees
     assert seen["body"]["prompt"] == "[SQL]" and "messages" not in seen["body"]
-    assert seen["body"]["stop"] == GENERATION_STOP_STRINGS
+    # vLLM answers 400 to more than 4 stop sequences (found on a real server); the rest of the
+    # markers are still removed by extract_sql(), so the trimmed list loses nothing.
+    assert 0 < len(seen["body"]["stop"]) <= 4
+    assert seen["body"]["stop"] == GENERATION_STOP_STRINGS[: len(seen["body"]["stop"])]
     assert seen["body"]["model"] == serving_app.SERVED_MODEL
 
 
