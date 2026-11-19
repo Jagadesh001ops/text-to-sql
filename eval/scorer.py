@@ -32,6 +32,9 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from utils import get_logger, load_config  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from hardness import spider_hardness  # noqa: E402
+
 log = get_logger("scorer")
 
 
@@ -192,6 +195,9 @@ def score_predictions(
             continue
 
         scores = score_example(db_path, rec["sql_pred"], rec["sql_gold"], timeout)
+        # Spider dev has no difficulty labels; derive them from the gold SQL.
+        if rec.get("difficulty") in (None, "", "unknown"):
+            rec = {**rec, "difficulty": spider_hardness(rec["sql_gold"])}
         results.append({**rec, **scores})
 
     # ── Aggregate ─────────────────────────────────────────────────────────────
