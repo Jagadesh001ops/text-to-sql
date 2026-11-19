@@ -9,14 +9,24 @@ Fine-tunes **Qwen2.5-3B-Instruct** via **QLoRA** on the Spider benchmark, evalua
 
 ## Results
 
+Spider dev set, all 1,034 examples. **Exec Acc** = the predicted SQL returns the same result set as the gold SQL when both are run against the real SQLite database.
+
 | Model | Exec Acc | Latency p95 | Cost / 1K queries |
 |---|---|---|---|
-| Qwen2.5-3B (zero-shot) | — | — | — |
-| Qwen2.5-3B (few-shot) | — | — | — |
-| **Qwen2.5-3B (fine-tuned)** | **—** | **—** | **$—** |
+| Qwen2.5-3B (zero-shot) | *running* | — | — |
+| Qwen2.5-3B (3-shot) | **57.9%** | — | — |
+| **Qwen2.5-3B (fine-tuned)** | ***running*** | **—** | **$—** |
 | GPT-4o-mini (reference) | — | — | $— |
 
-*Results will be filled in after training runs complete.*
+### By difficulty
+
+| Model | Easy (248) | Medium (446) | Hard (172) | Extra (168) | Overall |
+|---|---|---|---|---|---|
+| Qwen2.5-3B (3-shot) | 83.5% | 56.7% | 51.7% | 29.8% | 57.9% |
+
+Accuracy drops steadily with query complexity; the execution error rate rises from 6.0% on easy queries to 33.9% on extra-hard ones (nested subqueries, set operations, multi-way joins).
+
+<sub>Setup: greedy decoding, bf16, max 256 new tokens; 3-shot uses the same 3 fixed training examples in every prompt. Spider dev ships without difficulty labels, so tiers are computed from the gold SQL with Spider's official hardness rules (`eval/hardness.py`), which reproduce the published dev split counts (easy and medium exact, hard/extra within 2 queries). Remaining rows are filled in as runs complete.</sub>
 
 ---
 
