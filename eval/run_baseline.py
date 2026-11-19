@@ -82,9 +82,11 @@ def hf_generate(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> tup
             max_new_tokens=max_new_tokens,
             do_sample=False,          # greedy — deterministic SQL
             pad_token_id=tokenizer.eos_token_id,
-            # Stop as soon as the model starts re-emitting prompt sections
-            # instead of burning all max_new_tokens on repetition.
-            stop_strings=list(PROMPT_MARKERS),
+            # Stop as soon as the model starts re-emitting prompt sections or
+            # ends the statement, instead of burning all max_new_tokens.
+            # extract_sql() truncates at these same points, so the stored
+            # prediction is identical; generation is just shorter.
+            stop_strings=[*PROMPT_MARKERS, ";", "\n\n"],
             tokenizer=tokenizer,
         )
     latency_ms = (time.perf_counter() - t0) * 1000
