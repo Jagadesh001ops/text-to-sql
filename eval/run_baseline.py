@@ -44,31 +44,93 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Model loading ─────────────────────────────────────────────────────────────
 
+_ST_DTYPES = {"BF16": "bfloat16", "F16": "float16", "F32": "float32"}
+
+
+def _read_safetensors(path: Path):
+    """Yield (name, cpu tensor) from a .safetensors file WITHOUT memory-mapping it.
+
+    A mapped 4 GB shard counts against Windows' commit limit on top of the model
+    already on the GPU; plain reads keep the peak to one tensor at a time.
+    """
+    import struct
+
+    import torch
+
+    with open(path, "rb") as f:
+        (header_len,) = struct.unpack("<Q", f.read(8))
+        header = json.loads(f.read(header_len))
+        data_start = 8 + header_len
+        for name, meta in header.items():
+            if name == "__metadata__":
+                continue
+            begin, end = meta["data_offsets"]
+            f.seek(data_start + begin)
+            buf = bytearray(f.read(end - begin))
+            dtype = getattr(torch, _ST_DTYPES[meta["dtype"]])
+            yield name, torch.frombuffer(buf, dtype=dtype).reshape(meta["shape"])
+
+
+def load_base_bf16(model_id: str):
+    """The base model in bf16 on the GPU.
+
+    On Windows, transformers 5.16's weight loader hits an access violation while
+    reading the memory-mapped safetensors files (they read fine with plain
+    safetensors), so there the weights are copied in one tensor at a time. The
+    result is identical; every parameter is checked to have been set.
+    """
+    import torch
+    from transformers import AutoModelForCausalLM
+
+    if sys.platform != "win32":
+        return AutoModelForCausalLM.from_pretrained(
+            model_id, device_map="auto", trust_remote_code=True, dtype=torch.bfloat16,
+        )
+
+    from huggingface_hub import try_to_load_from_cache
+    from transformers import AutoConfig, GenerationConfig
+
+    cached_config = try_to_load_from_cache(model_id, "config.json")
+    if not isinstance(cached_config, str):
+        raise FileNotFoundError(f"{model_id} is not in the local Hugging Face cache")
+    path = Path(cached_config).parent
+    with torch.device("cuda"):
+        model = AutoModelForCausalLM.from_config(AutoConfig.from_pretrained(path), dtype=torch.bfloat16)
+    params = dict(model.named_parameters())
+    loaded: set[str] = set()
+    with torch.no_grad():
+        for shard in sorted(path.glob("*.safetensors")):
+            for name, tensor in _read_safetensors(shard):
+                params[name].copy_(tensor)
+                loaded.add(name)
+    if loaded != set(params):
+        raise RuntimeError(f"weight mismatch: missing {sorted(set(params) - loaded)[:3]}, "
+                           f"unexpected {sorted(loaded - set(params))[:3]}")
+    model.tie_weights()
+    # from_pretrained also reads generation_config.json (eos ids, repetition_penalty, ...)
+    model.generation_config = GenerationConfig.from_pretrained(path)
+    return model
+
+
 def load_hf_model(model_id: str):
     """Load the base model in bf16 (same precision as the merged fine-tuned model)."""
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     log.info("Loading model: %s (bf16)", model_id)
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="auto", trust_remote_code=True, dtype=torch.bfloat16,
-    )
+    model = load_base_bf16(model_id)
     model.eval()
     return model, tokenizer
 
 
 def load_finetuned_model(base_model_id: str, checkpoint_dir: str):
     """Base model in bf16 with the LoRA adapter merged in."""
-    import torch
     from peft import PeftModel
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     log.info("Loading fine-tuned model from %s", checkpoint_dir)
     tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir, trust_remote_code=True)
-    base = AutoModelForCausalLM.from_pretrained(
-        base_model_id, device_map="auto", trust_remote_code=True, dtype=torch.bfloat16,
-    )
+    base = load_base_bf16(base_model_id)
     model = PeftModel.from_pretrained(base, checkpoint_dir).merge_and_unload()
     model.eval()
     return model, tokenizer
