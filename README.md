@@ -14,13 +14,13 @@ Every configuration is scored with an **execution-accuracy harness** against liv
 
 ## Results
 
-Spider dev set, all 1,034 examples. **Exec Acc** = the predicted SQL returns the same result set as the gold SQL when both are run against the real SQLite database.
+Spider dev set, all 1,034 examples. **Exec Acc** = the predicted SQL returns the same result set as the gold SQL when both are run against the real SQLite database. Comparison follows the Spider test-suite convention: row counts must match (duplicates count), row order matters only when the gold query has a top-level `ORDER BY`, and column order doesn't.
 
 | Configuration | Exec Acc | Latency p95 | Cost / 1K queries |
 |---|---|---|---|
-| Zero-shot | 53.4% | — | — |
-| 3-shot | 57.9% | — | — |
-| **Fine-tuned (QLoRA)** | **70.6%** | — | — |
+| Zero-shot | 55.9% | — | — |
+| 3-shot | 60.8% | — | — |
+| **Fine-tuned (QLoRA)** | **71.4%** | — | — |
 | Fine-tuned + execution retry | *planned* | — | — |
 | Fine-tuned + execution voting | *planned* | — | — |
 
@@ -30,22 +30,22 @@ All rows are Qwen2.5-3B-Instruct. Latency and cost come from the served system (
 
 | Configuration | Easy (248) | Medium (446) | Hard (172) | Extra (168) | Overall |
 |---|---|---|---|---|---|
-| Zero-shot | 78.2% | 50.7% | 43.0% | 34.5% | 53.4% |
-| 3-shot | 83.5% | 56.7% | 51.7% | 29.8% | 57.9% |
-| **Fine-tuned (QLoRA)** | **91.5%** | **71.3%** | **62.8%** | **45.8%** | **70.6%** |
+| Zero-shot | 76.2% | 57.8% | 41.3% | 35.7% | 55.9% |
+| 3-shot | 82.3% | 64.1% | 50.6% | 31.0% | 60.8% |
+| **Fine-tuned (QLoRA)** | **88.7%** | **75.8%** | **61.0%** | **44.6%** | **71.4%** |
 
-- **Fine-tuning is the largest single step:** +17.2 points over zero-shot and +12.7 over 3-shot, with gains in every tier, including extra-hard (+11 over zero-shot), where few-shot prompting had *lost* ground. The execution error rate (SQL that fails to run) nearly halves, from 19–20% to 10.7%.
-- Accuracy drops steadily with query complexity in every configuration; even after fine-tuning, a quarter of extra-hard queries fail to execute (nested subqueries, set operations, multi-way joins).
-- 3-shot prompting adds +4.5 points overall, concentrated in easy–hard (+5 to +9), but *loses* 4.7 points on extra-hard queries. The 3 fixed examples are single-table queries (one easy, two medium) with no joins, nesting or set operations, which likely biases the model toward flat SQL where nesting is needed.
+- **Fine-tuning is the largest single step:** +15.5 points over zero-shot and +10.5 over 3-shot, with gains in every tier, including extra-hard (+8.9 over zero-shot), where few-shot prompting had *lost* ground. The execution error rate (SQL that fails to run) nearly halves, from 18–19% to 10.5%.
+- Accuracy drops steadily with query complexity in every configuration; even after fine-tuning, about a quarter of extra-hard queries fail to execute (nested subqueries, set operations, multi-way joins).
+- 3-shot prompting adds +4.9 points overall, concentrated in easy–hard (+6 to +9), but *loses* 4.8 points on extra-hard queries. The 3 fixed examples are single-table queries (one easy, two medium) with no joins, nesting or set operations, which likely biases the model toward flat SQL where nesting is needed.
 
 ### Fine-tuning: which checkpoint ships
 
 | Checkpoint | Training | Easy | Medium | Hard | Extra | Overall | Error rate |
 |---|---|---|---|---|---|---|---|
-| **Step 400 (lowest validation loss)** | ~0.9 epochs | 91.5% | 71.3% | 62.8% | 45.8% | **70.6%** | 10.7% |
-| Step 1299 (end of training) | 3 epochs | 89.5% | 67.0% | 64.5% | 41.1% | 67.8% | 11.2% |
+| **Step 400 (lowest validation loss)** | ~0.9 epochs | 88.7% | 75.8% | 61.0% | 44.6% | **71.4%** | 10.5% |
+| Step 1299 (end of training) | 3 epochs | 87.5% | 72.2% | 63.4% | 41.1% | 69.3% | 10.8% |
 
-Validation loss bottomed out at step 400 and rose afterwards; the extra two epochs cost 2.8 points of execution accuracy, mostly on medium and extra-hard queries, so the model overfits Spider's training databases with longer training. The shipped model is the step-400 checkpoint.
+Validation loss bottomed out at step 400 and rose afterwards; the extra two epochs cost 2.0 points of execution accuracy, mostly on medium and extra-hard queries (−3.6 each; hard queries improved by 2.3), which suggests the model starts to overfit Spider's training databases. The shipped model is the step-400 checkpoint.
 
 <sub>Setup: greedy decoding, bf16, max 256 new tokens; 3-shot uses the same 3 fixed training examples in every prompt. Fine-tuning: QLoRA (4-bit NF4 base, LoRA r=16 on q/k/v/o, 7.4M trainable parameters) on Spider's 7,000 training examples, whose databases do not overlap with dev; for evaluation the adapter is merged into the bf16 base and prompted zero-shot. Caveat: Spider's test set is not used here, so the dev set served both to pick the checkpoint (by validation loss, among the saved checkpoints) and to report results; the selection used loss rather than accuracy, so the bias is small but non-zero. Spider dev ships without difficulty labels, so tiers are computed from the gold SQL with Spider's official hardness rules (`eval/hardness.py`), which reproduce the published dev split counts (easy and medium exact, hard/extra within 2 queries). Remaining rows are filled in as runs complete.</sub>
 
