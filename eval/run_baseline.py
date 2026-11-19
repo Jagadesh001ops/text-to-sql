@@ -211,8 +211,15 @@ def run_evaluation(
     retry_temperature: float = 0.7,
     vote_samples: int = 0,
     vote_temperature: float = 0.7,
+    first_attempts: Path | None = None,
 ) -> Path:
     """Run inference on the Spider dev set and write a predictions JSONL.
+
+    With `first_attempts` (a predictions JSONL from an earlier plain run of the
+    same model), the greedy first answer for each question is taken from that file
+    instead of being regenerated. Greedy decoding is deterministic, so this gives
+    the same result, and retries then only generate for the queries that failed.
+    The reported latency covers only the extra generations.
 
     Returns the path to the predictions file.
     """
@@ -265,17 +272,31 @@ def run_evaluation(
             return "empty prediction"
         return execute_sql(db_path, sql, timeout)[1]
 
+    firsts: list[dict] | None = None
+    if first_attempts is not None:
+        with open(first_attempts) as f:
+            firsts = [json.loads(line) for line in f if line.strip()][: len(records)]
+        if len(firsts) < len(records):
+            raise ValueError(f"{first_attempts} has {len(firsts)} rows, need {len(records)}")
+        log.info("First attempts taken from %s (not regenerated)", first_attempts)
+
     with open(pred_file, "w") as fout:
-        for rec in tqdm(records, desc=f"Generating ({tag or mode})"):
+        for i, rec in enumerate(tqdm(records, desc=f"Generating ({tag or mode})")):
             prompt = build_prompt(rec["schema_text"], rec["question"], examples=shots) if shots else rec["prompt"]
             db_path = db_dir / rec["db_id"] / f"{rec['db_id']}.sqlite"
 
-            try:
-                raws, lat_ms = generate_n(prompt)
-                raw_output, error = raws[0], None
-            except Exception as e:
-                raw_output, lat_ms, error = "", 0.0, str(e)
-                log.warning("Generation error for '%s': %s", rec["question"][:60], e)
+            if firsts is not None:
+                first = firsts[i]
+                if (first["db_id"], first["question"]) != (rec["db_id"], rec["question"]):
+                    raise ValueError(f"row {i}: {first_attempts} is for a different question")
+                raw_output, lat_ms, error = first["sql_pred"], 0.0, first.get("generation_error")
+            else:
+                try:
+                    raws, lat_ms = generate_n(prompt)
+                    raw_output, error = raws[0], None
+                except Exception as e:
+                    raw_output, lat_ms, error = "", 0.0, str(e)
+                    log.warning("Generation error for '%s': %s", rec["question"][:60], e)
             sql_pred = extract_sql(raw_output)
 
             # Majority vote over the greedy prediction plus sampled candidates
@@ -367,6 +388,9 @@ def main() -> None:
                         help="Majority-vote over K candidates (greedy + K-1 samples) by execution result")
     parser.add_argument("--vote-temperature", type=float, default=0.7,
                         help="Sampling temperature for --vote-samples candidates")
+    parser.add_argument("--first-attempts", type=Path, default=None,
+                        help="Predictions JSONL from a plain run of the same model; its answers are used as the "
+                             "first attempt instead of regenerating them (retries then only generate for failures)")
     parser.add_argument("--skip-scoring", action="store_true",
                         help="Only generate predictions; don't run the scorer")
     args = parser.parse_args()
@@ -376,6 +400,7 @@ def main() -> None:
         args.mode, cfg, n_shot=args.n_shot, limit=args.limit, checkpoint=args.checkpoint, tag=args.tag,
         retries=args.retries, retry_mode=args.retry_mode, retry_temperature=args.retry_temperature,
         vote_samples=args.vote_samples, vote_temperature=args.vote_temperature,
+        first_attempts=args.first_attempts,
     )
 
     if not args.skip_scoring:

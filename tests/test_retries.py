@@ -108,6 +108,37 @@ def test_query_that_runs_is_not_retried(setup):
     assert rec["sql_pred"] == WRONG and len(calls) == 1  # retries only fix errors
 
 
+# ── Reusing earlier first attempts ────────────────────────────────────────────
+
+def _first_attempts(tmp_path, sql, question="Pet types?"):
+    path = tmp_path / "first.jsonl"
+    path.write_text(json.dumps({"db_id": "pets_1", "question": question, "sql_pred": sql,
+                                "generation_error": None}) + "\n")
+    return path
+
+
+def test_first_attempt_is_not_regenerated(setup, tmp_path):
+    cfg, calls, queue = setup
+    queue += ["SHOULD NOT BE USED"]
+    rec = _run(cfg, first_attempts=_first_attempts(tmp_path, WRONG))
+    assert rec["sql_pred"] == WRONG and calls == []          # model never called
+
+
+def test_failed_first_attempt_is_retried_with_feedback(setup, tmp_path):
+    cfg, calls, queue = setup
+    queue += [GOOD]
+    rec = _run(cfg, retries=2, first_attempts=_first_attempts(tmp_path, BAD))
+    assert rec["sql_pred"] == GOOD and len(calls) == 1       # only the retry was generated
+    assert BAD in calls[0]["prompt"] and "[ERROR]" in calls[0]["prompt"]
+    assert rec["failed_attempts"] == [{"sql": BAD, "error": "no such column: pet_type"}]
+
+
+def test_first_attempts_for_a_different_question_are_rejected(setup, tmp_path):
+    cfg, calls, queue = setup
+    with pytest.raises(ValueError, match="different question"):
+        _run(cfg, first_attempts=_first_attempts(tmp_path, GOOD, question="Something else?"))
+
+
 # ── Voting ────────────────────────────────────────────────────────────────────
 
 def test_vote_picks_majority_result(setup):
