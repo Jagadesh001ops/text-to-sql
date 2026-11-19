@@ -1,9 +1,14 @@
-# Text-to-SQL Fine-Tuning & Serving Pipeline
+# Text-to-SQL: A 3B Model as a Production Service
 
-> *Can a fine-tuned 3B model match a frontier API's accuracy at a fraction of the cost?*
-> This project builds the full pipeline to answer that question with real data.
+> *How far can a 3B model go as a production text-to-SQL service when it's fine-tuned, checked against the database it queries, and served on one GPU, and what does each step cost in accuracy, latency, and dollars?*
 
-Fine-tunes **Qwen2.5-3B-Instruct** via **QLoRA** on the Spider benchmark, evaluates it with an **execution-accuracy harness** against live SQLite databases, serves it through **vLLM + FastAPI**, and benchmarks it head-to-head against **GPT-4o-mini** on accuracy, latency, throughput, and cost.
+Each step is treated as a system component that has to earn its place:
+
+1. **Prompting → fine-tuning.** **Qwen2.5-3B-Instruct**, zero-shot and few-shot, then fine-tuned with **QLoRA** on Spider.
+2. **Execution feedback.** The generated SQL is run against the real database; failures trigger a retry, or several candidates are generated and voted on by their results. The database acts as a verifier.
+3. **Serving.** **vLLM + FastAPI** on a single GPU, measured for latency, throughput under concurrent load, and cost per 1K queries.
+
+Every configuration is scored with an **execution-accuracy harness** against live SQLite databases, and reported with its cost, not just its accuracy.
 
 ---
 
@@ -11,21 +16,24 @@ Fine-tunes **Qwen2.5-3B-Instruct** via **QLoRA** on the Spider benchmark, evalua
 
 Spider dev set, all 1,034 examples. **Exec Acc** = the predicted SQL returns the same result set as the gold SQL when both are run against the real SQLite database.
 
-| Model | Exec Acc | Latency p95 | Cost / 1K queries |
+| Configuration | Exec Acc | Latency p95 | Cost / 1K queries |
 |---|---|---|---|
-| Qwen2.5-3B (zero-shot) | 53.4% | — | — |
-| Qwen2.5-3B (3-shot) | 57.9% | — | — |
-| **Qwen2.5-3B (fine-tuned)** | ***running*** | **—** | **$—** |
-| GPT-4o-mini (reference) | — | — | $— |
+| Zero-shot | 53.4% | — | — |
+| 3-shot | 57.9% | — | — |
+| **Fine-tuned (QLoRA)** | ***running*** | — | — |
+| Fine-tuned + execution retry | *planned* | — | — |
+| Fine-tuned + execution voting | *planned* | — | — |
+
+All rows are Qwen2.5-3B-Instruct. Latency and cost come from the served system (vLLM on one GPU) and are filled in once serving is benchmarked.
 
 ### By difficulty
 
-| Model | Easy (248) | Medium (446) | Hard (172) | Extra (168) | Overall |
+| Configuration | Easy (248) | Medium (446) | Hard (172) | Extra (168) | Overall |
 |---|---|---|---|---|---|
-| Qwen2.5-3B (zero-shot) | 78.2% | 50.7% | 43.0% | 34.5% | 53.4% |
-| Qwen2.5-3B (3-shot) | 83.5% | 56.7% | 51.7% | 29.8% | 57.9% |
+| Zero-shot | 78.2% | 50.7% | 43.0% | 34.5% | 53.4% |
+| 3-shot | 83.5% | 56.7% | 51.7% | 29.8% | 57.9% |
 
-- Accuracy drops steadily with query complexity for every model; execution errors (SQL that fails to run) climb from 6–8% on easy queries to 30–34% on extra-hard ones (nested subqueries, set operations, multi-way joins).
+- Accuracy drops steadily with query complexity in every configuration; execution errors (SQL that fails to run) climb from 6–8% on easy queries to 30–34% on extra-hard ones (nested subqueries, set operations, multi-way joins).
 - 3-shot prompting adds +4.5 points overall, concentrated in easy–hard (+5 to +9), but *loses* 4.7 points on extra-hard queries. The 3 fixed examples are single-table queries (one easy, two medium) with no joins, nesting or set operations, which likely biases the model toward flat SQL where nesting is needed.
 
 <sub>Setup: greedy decoding, bf16, max 256 new tokens; 3-shot uses the same 3 fixed training examples in every prompt. Spider dev ships without difficulty labels, so tiers are computed from the gold SQL with Spider's official hardness rules (`eval/hardness.py`), which reproduce the published dev split counts (easy and medium exact, hard/extra within 2 queries). Remaining rows are filled in as runs complete.</sub>
@@ -73,7 +81,7 @@ Set environment variables:
 
 ```bash
 cp .env.example .env
-# Edit .env: WANDB_API_KEY, OPENAI_API_KEY, HF_TOKEN (if needed)
+# Edit .env: WANDB_API_KEY (optional), HF_TOKEN (optional)
 export $(cat .env | xargs)
 ```
 
@@ -92,9 +100,6 @@ python eval/run_baseline.py --mode zero-shot
 
 # Few-shot (3 examples in prompt)
 python eval/run_baseline.py --mode few-shot --n-shot 3
-
-# GPT-4o-mini ceiling (requires OPENAI_API_KEY)
-python eval/run_baseline.py --mode openai
 ```
 
 Results are written to `eval/results/`.
@@ -209,4 +214,4 @@ text-to-sql/
 | API layer | FastAPI |
 | Containerisation | Docker |
 | Evaluation | Custom execution-accuracy harness (SQLite) |
-| Reference model | GPT-4o-mini (OpenAI) |
+| Compute | NC State Hazel HPC (Slurm), `hpc/` job scripts |
