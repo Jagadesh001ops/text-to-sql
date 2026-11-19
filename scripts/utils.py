@@ -97,6 +97,10 @@ PROMPT_MARKERS = ("[SQL]", "[SYSTEM]", "[SCHEMA]", "[QUESTION]", "[FEW-SHOT EXAM
 # prompt section (it sometimes continues with "[QUESTION]…[SQL]…" or "[SCHEMA]…").
 _SQL_STOP_MARKERS = ("\n\n", "\n[", *PROMPT_MARKERS)
 
+# Passed to the generator (HF `stop_strings`, vLLM `stop`) so generation ends where
+# extract_sql() would cut anyway. Shared by offline eval and the serving layer.
+GENERATION_STOP_STRINGS = list(_SQL_STOP_MARKERS)
+
 
 def build_correction_prompt(prompt: str, failed_sql: str, error: str) -> str:
     """Re-prompt after a failed query: the original prompt, the bad SQL and the

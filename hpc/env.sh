@@ -38,10 +38,15 @@ load_conda() {
     eval "$(conda shell.bash hook)"
 }
 
-# Activate the env in a batch job.
+# Serving gets its own env: vLLM pins its own torch version, and installing it
+# into the training env would replace the torch that training/eval run on.
+export SERVE_ENV_PREFIX="${SERVE_ENV_PREFIX:-$WORK/conda/envs/t2sql-serve}"
+
+# Activate an env in a batch job (default: the training/eval env).
 activate_env() {
+    local prefix="${1:-$ENV_PREFIX}"
     load_conda
     module load cuda     # Hazel is on CUDA 13.2; older CUDA hangs on the new GPUs
-    conda activate "$ENV_PREFIX"
-    echo "Activated $ENV_PREFIX (python: $(which python))"
+    conda activate "$prefix"
+    echo "Activated $prefix (python: $(which python))"
 }

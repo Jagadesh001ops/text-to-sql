@@ -31,7 +31,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from utils import (  # noqa
-    PROMPT_MARKERS, build_correction_prompt, build_prompt, extract_sql, get_logger, load_config,
+    GENERATION_STOP_STRINGS, build_correction_prompt, build_prompt, extract_sql, get_logger, load_config,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -41,12 +41,6 @@ log = get_logger("run_baseline")
 
 RESULTS_DIR = Path("eval/results")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-# Stop generating where extract_sql() would cut anyway (a new prompt section or
-# a blank line), instead of burning max_new_tokens on run-on text. No ';' here:
-# a semicolon can sit inside a string literal; extract_sql() handles that case.
-GENERATION_STOP_STRINGS = [*PROMPT_MARKERS, "\n\n", "\n["]
-
 
 # ── Model loading ─────────────────────────────────────────────────────────────
 

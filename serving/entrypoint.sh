@@ -8,6 +8,7 @@ API_PORT=${API_PORT:-8000}
 
 echo "Starting vLLM on port $VLLM_PORT …"
 vllm serve "$MODEL_DIR" \
+    --served-model-name text2sql \
     --dtype bfloat16 \
     --max-model-len 2048 \
     --port "$VLLM_PORT" \
