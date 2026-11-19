@@ -23,7 +23,7 @@ Spider dev set, all 1,034 examples. **Exec Acc** = the predicted SQL returns the
 | **Fine-tuned (QLoRA)** | **71.4%** | — | — |
 | Fine-tuned + execution retry (error fed back, ≤2 retries) | 72.5% | — | — |
 | Fine-tuned + execution retry (resample, ≤2 retries) | 72.9% | — | — |
-| Fine-tuned + execution voting (8 candidates) | *running* | — | — |
+| **Fine-tuned + execution voting (8 candidates)** | **74.3%** | — | — |
 
 All rows are Qwen2.5-3B-Instruct. Latency and cost come from the served system (vLLM on one GPU) and are filled in once serving is benchmarked.
 
@@ -36,6 +36,7 @@ All rows are Qwen2.5-3B-Instruct. Latency and cost come from the served system (
 | **Fine-tuned (QLoRA)** | **88.7%** | **75.8%** | **61.0%** | **44.6%** | **71.4%** |
 | Fine-tuned + retry (feedback) | 89.1% | 76.9% | 63.4% | 45.8% | 72.5% |
 | Fine-tuned + retry (resample) | 88.7% | 77.1% | 63.4% | 48.2% | 72.9% |
+| **Fine-tuned + voting (8 candidates)** | 88.3% | **79.4%** | **65.7%** | **48.8%** | **74.3%** |
 
 - **Fine-tuning is the largest single step:** +15.5 points over zero-shot and +10.5 over 3-shot, with gains in every tier, including extra-hard (+8.9 over zero-shot), where few-shot prompting had *lost* ground. The execution error rate (SQL that fails to run) nearly halves, from 18–19% to 10.5%.
 - Accuracy drops steadily with query complexity in every configuration; even after fine-tuning, about a quarter of extra-hard queries fail to execute (nested subqueries, set operations, multi-way joins).
@@ -55,6 +56,23 @@ The database is used as a verifier: if the generated query errors, the model is 
 - The two styles are not distinguishable here: they differ by 4 questions, and resampling is random (one run, no repeats). Feedback gets more queries running, but only about 30% of those are also correct (12 of 40), against about half for resampling (16 of 33). A plausible reason is that the model never saw the `[ERROR]` re-prompt format during fine-tuning, so it tends to produce a query that runs but answers the wrong question.
 - About three quarters of the remaining wrong answers are queries that run and return the wrong result (about 20% of all queries, against 7% that fail to run), which retrying cannot fix: nothing signals that they are wrong.
 
+### Execution voting: sample several answers, keep the one the database agrees on
+
+Retrying only helps when a query errors. Voting also catches queries that run but are wrong: generate 8 candidates per question (the greedy answer plus 7 samples at T=0.7), execute them all, and return the query whose *result* most candidates agree on. Candidates that fail to run get no vote, and ties go to the greedy answer.
+
+| | Exec Acc | Error rate | Extra generation time per query* |
+|---|---|---|---|
+| No feedback (greedy) | 71.4% | 10.5% | — |
+| Retry, error fed back | 72.5% (+1.2) | 6.7% | ~1.0 s |
+| Retry, resample | 72.9% (+1.5) | 7.4% | ~1.0 s |
+| **Vote over 8 candidates** | **74.3% (+2.9)** | **5.5%** | ~4.9 s |
+
+<sub>*Average per query over the whole dev set, on a laptop RTX 5070 with Hugging Face `generate`, one query at a time. For reference, one greedy answer took about 3 s on the same machine (measured on 20 questions). These are not served-system latencies; the vLLM benchmark is what fills the latency and cost columns above.</sub>
+
+- Voting changed the greedy answer for 78 of 1,034 questions (7.5%) and came out **30 questions ahead** overall. In 863 questions (83%) the winning result had at least 5 of the 8 votes, and in 654 (63%) all 8 candidates agreed. For 57 questions no candidate ran at all.
+- The gain is in the harder tiers: medium +3.6, hard +4.7, extra +4.2 points. Easy is flat (−0.4, one question), where the greedy answer was already right.
+- It costs about **5× the extra generation time of a retry for roughly twice the gain**, because all 8 candidates are generated for every question, not just the 1 in 10 that fail. Whether that trade is worth it depends on the latency and cost budget, which is what the serving benchmark is meant to answer.
+
 ### Fine-tuning: which checkpoint ships
 
 | Checkpoint | Training | Easy | Medium | Hard | Extra | Overall | Error rate |
@@ -64,7 +82,7 @@ The database is used as a verifier: if the generated query errors, the model is 
 
 Validation loss bottomed out at step 400 and rose afterwards; the extra two epochs cost 2.0 points of execution accuracy, mostly on medium and extra-hard queries (−3.6 each; hard queries improved by 2.3), which suggests the model starts to overfit Spider's training databases. The shipped model is the step-400 checkpoint.
 
-<sub>Setup: greedy decoding, bf16, max 256 new tokens; 3-shot uses the same 3 fixed training examples in every prompt. Fine-tuning: QLoRA (4-bit NF4 base, LoRA r=16 on q/k/v/o, 7.4M trainable parameters) on Spider's 7,000 training examples, whose databases do not overlap with dev; for evaluation the adapter is merged into the bf16 base and prompted zero-shot. Caveat: Spider's test set is not used here, so the dev set served both to pick the checkpoint (by validation loss, among the saved checkpoints) and to report results; the selection used loss rather than accuracy, so the bias is small but non-zero. Spider dev ships without difficulty labels, so tiers are computed from the gold SQL with Spider's official hardness rules (`eval/hardness.py`), which reproduce the published dev split counts (easy and medium exact, hard/extra within 2 queries). Retry runs reuse the greedy first answer from the plain fine-tuned run (greedy decoding is deterministic; checked identical on a sample between two different GPUs) and generate only for the failing queries; they ran on a laptop RTX 5070, the others on Hazel's RTX 6000 Pro. Remaining rows are filled in as runs complete.</sub>
+<sub>Setup: greedy decoding, bf16, max 256 new tokens; 3-shot uses the same 3 fixed training examples in every prompt. Fine-tuning: QLoRA (4-bit NF4 base, LoRA r=16 on q/k/v/o, 7.4M trainable parameters) on Spider's 7,000 training examples, whose databases do not overlap with dev; for evaluation the adapter is merged into the bf16 base and prompted zero-shot. Caveat: Spider's test set is not used here, so the dev set served both to pick the checkpoint (by validation loss, among the saved checkpoints) and to report results; the selection used loss rather than accuracy, so the bias is small but non-zero. Spider dev ships without difficulty labels, so tiers are computed from the gold SQL with Spider's official hardness rules (`eval/hardness.py`), which reproduce the published dev split counts (easy and medium exact, hard/extra within 2 queries). The retry and voting runs reuse the greedy first answer from the plain fine-tuned run (greedy decoding is deterministic; 20 of 20 answers were identical between the two GPUs) and generate only the extra attempts; they ran on a laptop RTX 5070, the other rows on Hazel's RTX 6000 Pro. Voting and resampled retries are random (one run each, no repeats), so differences of a few questions between them are within noise.</sub>
 
 ---
 
