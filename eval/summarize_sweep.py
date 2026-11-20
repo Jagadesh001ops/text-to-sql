@@ -63,7 +63,7 @@ def summarize(rows: list[dict]) -> dict:
             "gain_3_to_6_points": round(gain_3_to_6, 2), "supported": rise > 0 and gain_3_to_6 < 1.5}
 
     # H1.2: diverse beats random on hard+extra by >= 2 points at matched n; no difference on easy
-    for n in (1, 3, 6):
+    for n in (1, 3, 6):    # the original, pre-registered sizes
         d_he = m(f"diverse-{n}", "hard_extra") - m(f"random-{n}", "hard_extra")
         d_easy = m(f"diverse-{n}", "easy") - m(f"random-{n}", "easy")
         spread = max(stats[f"diverse-{n}"]["hard_extra"]["sd"], stats[f"random-{n}"]["hard_extra"]["sd"])
@@ -82,6 +82,20 @@ def summarize(rows: list[dict]) -> dict:
         "random3_extra_mean": r3, "diverse3_extra_mean": d3,
         "random3_reproduces_drop": r3 < zs_extra, "diverse3_reduces_it": d3 > r3,
         "supported": r3 < zs_extra and d3 > r3}
+    # Extension (plan, Addendum 2; post-hoc in scope, predictions fixed before the runs)
+    if "random-8" in stats and "random-16" in stats:
+        d8, d16 = m("random-8") - m("random-6"), m("random-16") - m("random-6")
+        checks["H1.4 random plateau persists"] = {
+            "random6": m("random-6"), "random8": m("random-8"), "random16": m("random-16"),
+            "diff_8_vs_6": round(d8, 2), "diff_16_vs_6": round(d16, 2),
+            "supported": abs(d8) <= 1.5 and abs(d16) <= 1.5}
+    if "diverse-16" in stats and "random-16" in stats:
+        gap16 = m("diverse-16") - m("random-16")
+        gap3 = m("diverse-3") - m("random-3")
+        checks["H1.5 diverse converges to random"] = {
+            "gap_n3": round(gap3, 2), "gap_n16": round(gap16, 2),
+            "gap_n8": round(m("diverse-8") - m("random-8"), 2) if "diverse-8" in stats else None,
+            "supported": abs(gap16) < 2.0 and abs(gap16) < abs(gap3)}
     return {"cells": stats, "zero_shot": pct(zs["exec_acc"]), "first3": pct(first3["exec_acc"]), "checks": checks}
 
 

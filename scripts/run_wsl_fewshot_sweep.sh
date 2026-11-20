@@ -60,12 +60,16 @@ run() {   # run <tag> <strategy> <shots> <seed>
     fi
 }
 
+# Shot counts to sweep, comma-separated (default: the original plan). Runs already in
+# summary.jsonl are skipped, so e.g. SWEEP_NS=8,16 adds only the new cells.
+IFS=, read -ra SHOT_COUNTS <<< "${SWEEP_NS:-3,6,1}"
+
 # Most informative first, so partial results are useful if the sweep is stopped early.
 run zs none 0 0
 run first3 first 3 0
-for seed in 0 1 2; do run "rand3_s$seed" random 3 "$seed"; run "div3_s$seed" diverse 3 "$seed"; done
-for seed in 0 1 2; do run "rand6_s$seed" random 6 "$seed"; run "div6_s$seed" diverse 6 "$seed"; done
-for seed in 0 1 2; do run "rand1_s$seed" random 1 "$seed"; run "div1_s$seed" diverse 1 "$seed"; done
+for n in "${SHOT_COUNTS[@]}"; do
+    for seed in 0 1 2; do run "rand${n}_s$seed" random "$n" "$seed"; run "div${n}_s$seed" diverse "$n" "$seed"; done
+done
 
 if [ -n "$WIN_OUT" ]; then cp -f eval/results/sweep/*_scores.json "$WIN_OUT/sweep/" 2>/dev/null || true; fi
 status "ALL DONE"
