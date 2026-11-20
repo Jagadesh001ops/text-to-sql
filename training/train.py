@@ -17,7 +17,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import random
 import sys
 from pathlib import Path
 
@@ -66,9 +68,31 @@ def build_training_args(cfg: dict, output_dir: str, run_name: str):
     )
 
 
+def subset_indices(total: int, n: int, seed: int = 0) -> list[int]:
+    """First n of one seeded shuffle of range(total).
+
+    Nested by construction: for a fixed seed, the n=1000 subset is contained in the n=3000 subset,
+    so a learning curve compares training sets that only differ by added examples.
+    """
+    if not 0 < n <= total:
+        raise ValueError(f"train size must be in 1..{total}, got {n}")
+    order = list(range(total))
+    random.Random(seed).shuffle(order)
+    return sorted(order[:n])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="QLoRA fine-tuning")
     parser.add_argument("--config", default="configs/config.yaml")
+    parser.add_argument("--train-size", type=int, default=None,
+                        help="Train on a nested random subset of this many examples (learning curve)")
+    parser.add_argument("--subset-seed", type=int, default=0, help="Seed of the subset shuffle")
+    parser.add_argument("--output-dir", default=None, help="Override training.output_dir")
+    parser.add_argument("--eval-steps", type=int, default=None,
+                        help="Evaluate and save every N steps (default: config; use fewer for small subsets)")
+    parser.add_argument("--batch-size", type=int, default=None,
+                        help="Per-device batch size; gradient accumulation is adjusted to keep the same "
+                             "effective batch (use a smaller value if the GPU runs out of memory)")
     parser.add_argument("--lora-r", type=int, default=None, help="Override LoRA rank")
     parser.add_argument("--lr", type=float, default=None, help="Override learning rate")
     parser.add_argument("--epochs", type=int, default=None, help="Override num epochs")
@@ -86,6 +110,16 @@ def main() -> None:
         cfg["training"]["learning_rate"] = args.lr
     if args.epochs:
         cfg["training"]["num_epochs"] = args.epochs
+    if args.output_dir:
+        cfg["training"]["output_dir"] = args.output_dir
+    if args.eval_steps:
+        cfg["training"]["eval_steps"] = cfg["training"]["save_steps"] = args.eval_steps
+    if args.batch_size:
+        effective = cfg["training"]["per_device_train_batch_size"] * cfg["training"]["gradient_accumulation_steps"]
+        if effective % args.batch_size:
+            raise SystemExit(f"--batch-size must divide the effective batch size {effective}")
+        cfg["training"]["per_device_train_batch_size"] = args.batch_size
+        cfg["training"]["gradient_accumulation_steps"] = effective // args.batch_size
 
     tc = cfg["training"]
 
@@ -131,6 +165,14 @@ def main() -> None:
         lambda ex: {"prompt": ex["prompt"], "completion": "\n" + ex["sql"]},
         remove_columns=dataset["train"].column_names,
     )
+
+    if args.train_size:
+        idx = subset_indices(len(dataset["train"]), args.train_size, args.subset_seed)
+        dataset["train"] = dataset["train"].select(idx)
+        Path(tc["output_dir"]).mkdir(parents=True, exist_ok=True)
+        (Path(tc["output_dir"]) / "subset_info.json").write_text(json.dumps(
+            {"train_size": args.train_size, "subset_seed": args.subset_seed, "indices": idx}))
+        log.info("Training on a nested subset of %d examples (seed %d)", len(idx), args.subset_seed)
 
     log.info("Train: %d  |  Validation: %d", len(dataset["train"]), len(dataset["validation"]))
 
