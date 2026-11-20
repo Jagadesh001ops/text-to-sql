@@ -57,6 +57,16 @@ evaluated zero-shot through vLLM.
 think; gain(3,000) within one point of the 7,000 model means volume is not the limit and the gain
 is mostly format/convention learning.
 
+## Addendum (2026-11-19, after the first two runs, before the rest)
+
+The plan above says vLLM and Hugging Face agree to within 0.3 points on identical models. That
+was measured on the fine-tuned model only (71.1% vs 71.4%). On the **base** model the first two
+runs differ by more: 0-shot 55.2% (vLLM) vs 55.9% (Hugging Face), and the original 3-shot 59.9%
+vs 60.8%, i.e. −0.7 and −1.0 points. The original 3-shot's extra-hard drop reproduces on vLLM
+(32.1% → 30.4%). The hypotheses are unchanged; all comparisons within this experiment are
+between cells run on the same engine, and cross-engine differences of about a point are treated
+as engine noise when relating these results to the main table.
+
 ## Caveats, stated up front
 
 - One training run per size (no seeds), so size differences under about 1–1.5 points are noise.
