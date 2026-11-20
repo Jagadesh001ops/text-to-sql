@@ -34,7 +34,7 @@ python -m pip install torch==2.13.0 --index-url https://download.pytorch.org/whl
 python -m pip install \
     transformers==5.16.1 trl==1.12.0 peft==0.20.0 bitsandbytes==0.50.2 \
     accelerate datasets sqlglot pandas numpy tqdm rich pyyaml \
-    python-dotenv openai wandb
+    python-dotenv wandb
 
 python -c "import torch, trl, transformers, peft, bitsandbytes; print('torch', torch.__version__, '| cuda build', torch.version.cuda)"
 

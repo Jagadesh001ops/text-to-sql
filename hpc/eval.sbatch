@@ -5,8 +5,6 @@
 #   sbatch --dependency=afterok:<TRAIN_JOB_ID> hpc/eval.sbatch finetuned
 # Extra args go straight to run_baseline.py, e.g. score a specific checkpoint:
 #   sbatch hpc/eval.sbatch finetuned --checkpoint training/outputs/checkpoint-1299 --tag finetuned-final
-# GPT-4o-mini needs no GPU: run `python eval/run_baseline.py --mode openai`
-# on your laptop or the login node.
 #SBATCH --job-name=t2sql_eval
 #SBATCH --partition=gpu_partners
 #SBATCH --qos=short_gpu
