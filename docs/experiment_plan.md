@@ -86,6 +86,24 @@ context.
 helping) or below it (long prompts hurt); or a diverse − random gap at n = 16 of 2+ points. Same
 caveats as above: 3 seeds per cell.
 
+## Addendum 3 (2026-11-19, before any Experiment 2 run)
+
+Making Experiment 2 precise before running it; no prediction is changed.
+
+- **Subsets are nested:** one seeded shuffle of the 7,000 training examples (seed 0); N = 1,000 and
+  3,000 are the first N of it, so each larger set contains the smaller. The 7,000 point is the
+  existing model (best checkpoint by dev loss), re-evaluated through the same vLLM client as the new
+  models so all three points share one evaluation path. The 0-shot point is the vLLM 0-shot run of
+  Experiment 1 (55.2%).
+- **H2.1** is evaluated on overall accuracy with the thresholds as written.
+- **H2.2 is operationalized** as: the gain from additional data beyond 1,000 examples,
+  acc(7,000) − acc(1,000), is larger for the hard tier than for the easy tier **and** larger for the
+  extra tier than for the easy tier. Supported only if both hold by more than 1.5 points (about the
+  noise of a single run on a tier of this size, which is larger still for the 168-question extra
+  tier; the README will say so when a difference is within noise).
+- One training run per size, no seeds: the experiment cannot separate a data-size effect from run-to-run
+  training variance of about a point.
+
 ## Caveats, stated up front
 
 - One training run per size (no seeds), so size differences under about 1–1.5 points are noise.
