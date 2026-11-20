@@ -10,6 +10,16 @@ Each step is treated as a system component that has to earn its place:
 
 Every configuration is scored with an **execution-accuracy harness** against live SQLite databases, and reported with its cost, not just its accuracy.
 
+### Summary
+
+On Spider dev (1,034 questions, execution accuracy):
+
+- **Fine-tuning is the big step:** 55.9% zero-shot → **71.4%** with QLoRA. The best prompt-only setup I found (8 random examples, mean of 3 seeds) reaches 62.1% against 71.1% for the fine-tuned model on the same vLLM engine, so more or better examples do not close the gap.
+- **Checking against the database is a small, real step:** retrying failed queries gives +1.1 points (72.5%), voting over 8 candidates by execution result gives +2.9 (**74.3%**), at roughly 1.4× (retry) and several times (voting) the generation cost.
+- **One 8 GB GPU can serve it:** 2.0 s p95 and about 17 queries/s at 16 concurrent requests, 59 GPU-seconds per 1,000 queries (about $0.04 at an assumed $2.50/GPU-hour).
+- **Data needs:** about 1,000 training examples recover most of the gain (67.8%), 7,000 reach 71.2%. One of two 1,000-example runs collapsed into empty outputs for unknown reasons, so small-data training is unstable in this recipe.
+- Several pre-registered hypotheses were **not** supported; they are reported as such (see [Limitations](#limitations-and-how-to-read-these-numbers)).
+
 ---
 
 ## Results
@@ -164,6 +174,19 @@ QLoRA on random subsets of the 7,000 training examples, same recipe otherwise; e
 - **What I would claim.** About 1,000 well-behaved examples already get most of the gain over prompting (67.8% vs 55.2%), and 7,000 add about 3-4 points on top. The 1,000-example and 3,000-example runs differ by less than the run-to-run spread (the two 1,000 runs differ by 16 points, one of them broken), so the shape between 1,000 and 3,000 is not resolved.
 
 <sub>Setup: `scripts/run_wsl_learning_curve.sh` and `scripts/run_wsl_followup.sh`, QLoRA on the laptop GPU. The new models use micro-batch 2 x 8 gradient accumulation (the 7,000 model used 4 x 4), the same effective batch of 16, learning rate, schedule and 3 epochs; the best checkpoint is chosen by dev loss. One training run per size except 1,000, so differences under about 1.5 points are noise. Same dev-set caveat as above. Raw numbers: `results/learning_curve.json`.</sub>
+
+---
+
+## Limitations and how to read these numbers
+
+- **No held-out test set.** Spider's test set is not used. The dev set both selects the checkpoint (by validation loss, not accuracy) and reports the result, so the headline numbers are slightly optimistic.
+- **Mostly single runs.** Retry, voting and the training-size runs are one run each (the n-shot experiment uses 3 seeds per cell). Differences under about 1-1.5 points are noise, and tiers are small (extra-hard is 168 questions, so one question is 0.6 points).
+- **Two engines.** The main table was produced with Hugging Face generation (fine-tuned model on Hazel's RTX 6000 Pro; retry and voting on the laptop RTX 5070). The n-shot and training-size experiments, and the served numbers, use vLLM, which differs from Hugging Face by about 0.7-1.0 points on the base model. Comparisons are made only within one engine; the 7,000 model scores 71.4% (Hugging Face) and 71.1-71.2% (vLLM).
+- **Serving numbers are for this laptop only.** An 8 GB GPU shared with the Windows desktop, a 512 MiB KV cache, 16 concurrent requests as the operating point. Dollar costs use an assumed GPU price; GPU-seconds per 1,000 queries is the price-independent figure. Voting and resampled retries were evaluated offline and not served.
+- **One benchmark.** Spider is small SQLite databases with clean schemas; nothing here says how the system behaves on a messy production schema. Difficulty tiers are computed from the gold SQL (Spider's rules), not shipped labels.
+- **Post-hoc work is labelled.** The 8- and 16-shot runs and the 1,000-example reseed were added after seeing earlier results; `docs/experiment_plan.md` records the predictions made before each run (Addenda 2-5). Of the pre-registered hypotheses, H1.1 (partly), H1.5 and nothing else were supported; H1.2-H1.4, H2.1 and H2.2 were not, and the earlier explanation for the 3-shot extra-hard drop was withdrawn.
+- **Unexplained failure.** One 1,000-example training run produced empty outputs for 22% of questions and I did not find why; validation loss did not reveal it. The shipped 7,000-example model has no empty outputs, but checkpoint selection by loss alone should not be trusted without an output check.
+- **Training protocol difference.** The 1,000- and 3,000-example models used micro-batch 2 × 8 accumulation; the 7,000 model used 4 × 4 (same effective batch of 16).
 
 ---
 
