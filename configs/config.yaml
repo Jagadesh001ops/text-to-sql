@@ -25,8 +25,8 @@ training:
   lr_scheduler: "cosine"
   output_dir: "training/outputs"
   logging_steps: 10
-  eval_steps: 100
-  save_steps: 100   # frequent saves so 2-hr wall requeues lose at most ~100 steps
+  eval_steps: 200
+  save_steps: 200
   fp16: false
   bf16: true   # set false if GPU doesn't support bf16
 
@@ -43,14 +43,11 @@ serving:
   port: 8000
   max_new_tokens: 256
   temperature: 0.0           # greedy decoding for deterministic SQL
-  self_correction_retries: 1
-
-reference_model:
-  provider: "openai"
-  model_id: "gpt-4o-mini"
-  max_tokens: 256
+  self_correction_retries: 2   # matches the evaluated setup (eval: --retries 2)
 
 benchmark:
-  n_concurrent: 10           # concurrent requests for throughput test
-  n_requests: 200            # total requests per benchmark run
-  gpu_hourly_cost_usd: 2.50  # e.g. RunPod RTX 4090; update to your actual rate
+  # ASSUMED price per GPU-hour, used only for the "$ / 1K queries" column. The Hazel
+  # runs are not billed; set this to the rental rate you want to quote (or override
+  # with --gpu-hourly-usd). GPU-seconds per 1K queries is reported alongside and
+  # needs no price assumption.
+  gpu_hourly_cost_usd: 2.50

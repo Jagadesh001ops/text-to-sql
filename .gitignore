@@ -31,3 +31,10 @@ wandb/
 # OS
 .DS_Store
 Thumbs.db
+
+
+# graphify output
+graphify-out/
+
+# Run outputs (logs, per-example scores); headline numbers live in the README
+eval/results/

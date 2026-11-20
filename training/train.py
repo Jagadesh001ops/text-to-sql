@@ -17,7 +17,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import random
 import sys
 from pathlib import Path
 
@@ -27,67 +29,76 @@ from utils import get_logger, load_config  # noqa
 log = get_logger("train")
 
 
-CORE_ARGS = {
-    "output_dir", "num_train_epochs", "per_device_train_batch_size",
-    "gradient_accumulation_steps", "learning_rate", "eval_steps", "save_steps",
-}
-
-
 def build_training_args(cfg: dict, output_dir: str, run_name: str):
-    """Build SFTConfig, keeping only fields the installed TRL/transformers accept."""
-    import dataclasses
-
+    """Build TRL SFTConfig (superset of TrainingArguments) from config."""
     from trl import SFTConfig
 
+    import torch
+
     tc = cfg["training"]
-    wanted = {
-        "output_dir": output_dir,
-        "run_name": run_name,
-        "num_train_epochs": tc["num_epochs"],
-        "per_device_train_batch_size": tc["per_device_train_batch_size"],
-        "gradient_accumulation_steps": tc["gradient_accumulation_steps"],
-        "learning_rate": tc["learning_rate"],
-        "lr_scheduler_type": tc["lr_scheduler"],
-        "warmup_steps": 50,
-        "fp16": tc["fp16"],
-        "bf16": tc["bf16"],
-        "logging_steps": tc["logging_steps"],
-        "eval_strategy": "steps",
-        "eval_steps": tc["eval_steps"],
-        "save_strategy": "steps",
-        "save_steps": tc["save_steps"],
-        "save_total_limit": 3,
-        "load_best_model_at_end": True,
-        "metric_for_best_model": "eval_loss",
-        "greater_is_better": False,
-        "report_to": "wandb" if os.getenv("WANDB_API_KEY") else "none",
-        "dataloader_num_workers": 4,
-        "dataset_text_field": "text",
-        # TRL renamed max_seq_length -> max_length; pass both, keep whichever exists
-        "max_seq_length": tc["max_seq_length"],
-        "max_length": tc["max_seq_length"],
-    }
+    # bf16 needs Ampere or newer; fall back to fp16 on older cluster GPUs.
+    bf16 = tc["bf16"] and torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    return SFTConfig(
+        output_dir=output_dir,
+        run_name=run_name,
+        num_train_epochs=tc["num_epochs"],
+        per_device_train_batch_size=tc["per_device_train_batch_size"],
+        per_device_eval_batch_size=tc["per_device_train_batch_size"] * 2,
+        gradient_accumulation_steps=tc["gradient_accumulation_steps"],
+        learning_rate=tc["learning_rate"],
+        lr_scheduler_type=tc["lr_scheduler"],
+        warmup_steps=tc["warmup_ratio"],  # float in [0, 1) = ratio of total steps
+        fp16=tc["fp16"] and not bf16,
+        bf16=bf16,
+        logging_steps=tc["logging_steps"],
+        eval_strategy="steps",
+        eval_steps=tc["eval_steps"],
+        save_strategy="steps",
+        save_steps=tc["save_steps"],
+        save_total_limit=3,
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        report_to="wandb" if os.getenv("WANDB_API_KEY") else "none",
+        dataloader_num_workers=4,
+        max_length=tc["max_seq_length"],
+        # Prompt/completion dataset → loss only on the SQL completion tokens.
+        completion_only_loss=True,
+        gradient_checkpointing=True,
+    )
 
-    accepted = {f.name for f in dataclasses.fields(SFTConfig)}
-    missing_core = CORE_ARGS - accepted
-    if missing_core:
-        raise RuntimeError(f"SFTConfig is missing core training args: {sorted(missing_core)}")
 
-    dropped = sorted(k for k in wanted if k not in accepted)
-    if dropped:
-        log.info("SFTConfig: skipping args not supported by this TRL version: %s", dropped)
+def subset_indices(total: int, n: int, seed: int = 0) -> list[int]:
+    """First n of one seeded shuffle of range(total).
 
-    return SFTConfig(**{k: v for k, v in wanted.items() if k in accepted})
+    Nested by construction: for a fixed seed, the n=1000 subset is contained in the n=3000 subset,
+    so a learning curve compares training sets that only differ by added examples.
+    """
+    if not 0 < n <= total:
+        raise ValueError(f"train size must be in 1..{total}, got {n}")
+    order = list(range(total))
+    random.Random(seed).shuffle(order)
+    return sorted(order[:n])
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="QLoRA fine-tuning")
     parser.add_argument("--config", default="configs/config.yaml")
+    parser.add_argument("--train-size", type=int, default=None,
+                        help="Train on a nested random subset of this many examples (learning curve)")
+    parser.add_argument("--subset-seed", type=int, default=0, help="Seed of the subset shuffle")
+    parser.add_argument("--output-dir", default=None, help="Override training.output_dir")
+    parser.add_argument("--eval-steps", type=int, default=None,
+                        help="Evaluate and save every N steps (default: config; use fewer for small subsets)")
+    parser.add_argument("--batch-size", type=int, default=None,
+                        help="Per-device batch size; gradient accumulation is adjusted to keep the same "
+                             "effective batch (use a smaller value if the GPU runs out of memory)")
     parser.add_argument("--lora-r", type=int, default=None, help="Override LoRA rank")
     parser.add_argument("--lr", type=float, default=None, help="Override learning rate")
     parser.add_argument("--epochs", type=int, default=None, help="Override num epochs")
     parser.add_argument("--run-name", default="qwen-text2sql-qlora", help="W&B run name")
-    parser.add_argument("--resume-from", default=None, help="Resume training from a checkpoint directory")
+    parser.add_argument("--resume-from", default=None,
+                        help="Checkpoint dir to resume from (used by the Slurm requeue loop)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -99,6 +110,16 @@ def main() -> None:
         cfg["training"]["learning_rate"] = args.lr
     if args.epochs:
         cfg["training"]["num_epochs"] = args.epochs
+    if args.output_dir:
+        cfg["training"]["output_dir"] = args.output_dir
+    if args.eval_steps:
+        cfg["training"]["eval_steps"] = cfg["training"]["save_steps"] = args.eval_steps
+    if args.batch_size:
+        effective = cfg["training"]["per_device_train_batch_size"] * cfg["training"]["gradient_accumulation_steps"]
+        if effective % args.batch_size:
+            raise SystemExit(f"--batch-size must divide the effective batch size {effective}")
+        cfg["training"]["per_device_train_batch_size"] = args.batch_size
+        cfg["training"]["gradient_accumulation_steps"] = effective // args.batch_size
 
     tc = cfg["training"]
 
@@ -138,6 +159,21 @@ def main() -> None:
         data_files={"train": train_file, "validation": dev_file},
     )
 
+    # TRL prompt/completion format: the prompt already ends with "[SQL]", the
+    # completion is the gold query (TRL appends EOS, so the model learns to stop).
+    dataset = dataset.map(
+        lambda ex: {"prompt": ex["prompt"], "completion": "\n" + ex["sql"]},
+        remove_columns=dataset["train"].column_names,
+    )
+
+    if args.train_size:
+        idx = subset_indices(len(dataset["train"]), args.train_size, args.subset_seed)
+        dataset["train"] = dataset["train"].select(idx)
+        Path(tc["output_dir"]).mkdir(parents=True, exist_ok=True)
+        (Path(tc["output_dir"]) / "subset_info.json").write_text(json.dumps(
+            {"train_size": args.train_size, "subset_seed": args.subset_seed, "indices": idx}))
+        log.info("Training on a nested subset of %d examples (seed %d)", len(idx), args.subset_seed)
+
     log.info("Train: %d  |  Validation: %d", len(dataset["train"]), len(dataset["validation"]))
 
     # ── Tokenizer ─────────────────────────────────────────────────────────────
@@ -148,18 +184,11 @@ def main() -> None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
-    # Single "text" column: avoids TRL treating the "prompt" column as prompt/completion format
-    eos = tokenizer.eos_token
-    dataset = dataset.map(
-        lambda ex: {"text": f"{ex['prompt']}\n{ex['sql']}{eos}"},
-        remove_columns=dataset["train"].column_names,
-    )
-
     # ── Model in 4-bit ────────────────────────────────────────────────────────
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
         bnb_4bit_use_double_quant=True,
     )
 
@@ -190,23 +219,17 @@ def main() -> None:
     training_args = build_training_args(cfg, output_dir, args.run_name)
 
     # ── Trainer ───────────────────────────────────────────────────────────────
-    import inspect
-
-    # Newer TRL/transformers renamed tokenizer= to processing_class=
-    tok_kwarg = (
-        "processing_class"
-        if "processing_class" in inspect.signature(SFTTrainer.__init__).parameters
-        else "tokenizer"
-    )
     trainer = SFTTrainer(
         model=model,
+        processing_class=tokenizer,
         args=training_args,
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
-        **{tok_kwarg: tokenizer},
     )
 
     log.info("Starting training …")
+    if args.resume_from:
+        log.info("Resuming from %s", args.resume_from)
     trainer.train(resume_from_checkpoint=args.resume_from)
 
     # ── Save best checkpoint ──────────────────────────────────────────────────

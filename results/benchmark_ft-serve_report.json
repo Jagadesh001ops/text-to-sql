@@ -1,0 +1,95 @@
+{
+  "label": "ft-serve",
+  "execute": false,
+  "gpu": "rtx_5070_laptop",
+  "gpu_hourly_usd_assumed": 2.5,
+  "api_health": {
+    "status": "ok",
+    "vllm_url": "http://127.0.0.1:8001/v1",
+    "model": "text2sql",
+    "retry_mode": "feedback"
+  },
+  "accuracy": {
+    "exec_acc": 0.7108,
+    "by_difficulty": {
+      "easy": {
+        "n": 248,
+        "exec_acc": 0.8831,
+        "exact_acc": 0.7984,
+        "error_rate": 0.0161
+      },
+      "medium": {
+        "n": 446,
+        "exec_acc": 0.7578,
+        "exact_acc": 0.4372,
+        "error_rate": 0.0852
+      },
+      "hard": {
+        "n": 172,
+        "exec_acc": 0.6047,
+        "exact_acc": 0.3547,
+        "error_rate": 0.157
+      },
+      "extra": {
+        "n": 168,
+        "exec_acc": 0.4405,
+        "exact_acc": 0.1548,
+        "error_rate": 0.2738
+      }
+    }
+  },
+  "passes": [
+    {
+      "n_requests": 1034,
+      "wall_time_s": 782.67,
+      "throughput_qps": 1.321,
+      "error_rate": 0.0,
+      "latency_p50_ms": 556.2,
+      "latency_p95_ms": 1680.4,
+      "latency_p99_ms": 2353.9,
+      "latency_mean_ms": 756.9,
+      "concurrency": 1,
+      "gpu_seconds_per_1k": 757.0,
+      "usd_per_1k": 0.5257
+    },
+    {
+      "n_requests": 1034,
+      "wall_time_s": 185.3,
+      "throughput_qps": 5.58,
+      "error_rate": 0.0,
+      "latency_p50_ms": 531.1,
+      "latency_p95_ms": 1586.4,
+      "latency_p99_ms": 2344.9,
+      "latency_mean_ms": 714.8,
+      "concurrency": 4,
+      "gpu_seconds_per_1k": 179.21,
+      "usd_per_1k": 0.1245
+    },
+    {
+      "n_requests": 1034,
+      "wall_time_s": 61.19,
+      "throughput_qps": 16.899,
+      "error_rate": 0.0,
+      "latency_p50_ms": 704.4,
+      "latency_p95_ms": 1997.9,
+      "latency_p99_ms": 2954.5,
+      "latency_mean_ms": 934.6,
+      "concurrency": 16,
+      "gpu_seconds_per_1k": 59.18,
+      "usd_per_1k": 0.0411
+    },
+    {
+      "n_requests": 1034,
+      "wall_time_s": 59.09,
+      "throughput_qps": 17.498,
+      "error_rate": 0.0,
+      "latency_p50_ms": 3439.2,
+      "latency_p95_ms": 4871.8,
+      "latency_p99_ms": 5672.0,
+      "latency_mean_ms": 3526.9,
+      "concurrency": 64,
+      "gpu_seconds_per_1k": 57.15,
+      "usd_per_1k": 0.0397
+    }
+  ]
+}

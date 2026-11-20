@@ -1,0 +1,37 @@
+{
+  "ft1000_subset_seed1": {
+    "exec_acc": 0.6779,
+    "by_difficulty": {
+      "easy": 0.8589,
+      "medium": 0.7265,
+      "hard": 0.5581,
+      "extra": 0.4048
+    },
+    "empty_predictions": 0,
+    "n_questions": 1034
+  },
+  "unmerged_nf4_adapter_ft1000_seed0_first200": {
+    "empty": 133,
+    "exec_acc": 0.175,
+    "note": "HF batched generation; not comparable to the vLLM rate (36/200 empty on the same slice)"
+  },
+  "ft1000_seed0_vllm": {
+    "empty_predictions": 225,
+    "exec_acc_on_nonempty": 0.6576
+  },
+  "ft1000_seed0_checkpoint_scan": {
+    "step124_shipped": {
+      "empty": 225,
+      "exec_acc": 0.5155
+    },
+    "step155": {
+      "empty": 215,
+      "exec_acc": 0.5242
+    },
+    "step186": {
+      "empty": 207,
+      "exec_acc": 0.5338
+    },
+    "prediction": "empty < 10% at step 186 if under-training; not met"
+  }
+}

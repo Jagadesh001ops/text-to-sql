@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import yaml
 import logging
+import re
+
+import yaml
 from pathlib import Path
 from typing import Any
 
@@ -87,16 +89,58 @@ def build_prompt(schema_text: str, question: str, examples: list[dict] | None = 
     return "\n".join(parts)
 
 
+# Prompt section markers. A base model that doesn't emit EOS keeps going and
+# re-emits these ("... [SQL] SELECT ... [SYSTEM] ..."), so generation stops at them.
+PROMPT_MARKERS = ("[SQL]", "[SYSTEM]", "[SCHEMA]", "[QUESTION]", "[FEW-SHOT EXAMPLES]", "[ERROR]")
+
+# Where the model starts writing past the query: a blank line or the next
+# prompt section (it sometimes continues with "[QUESTION]…[SQL]…" or "[SCHEMA]…").
+_SQL_STOP_MARKERS = ("\n\n", "\n[", *PROMPT_MARKERS)
+
+# Passed to the generator (HF `stop_strings`, vLLM `stop`) so generation ends where
+# extract_sql() would cut anyway. Shared by offline eval and the serving layer.
+GENERATION_STOP_STRINGS = list(_SQL_STOP_MARKERS)
+
+
+def build_correction_prompt(prompt: str, failed_sql: str, error: str) -> str:
+    """Re-prompt after a failed query: the original prompt, the bad SQL and the
+    database error, asking for a corrected query. Shared by serving and eval."""
+    return (
+        f"{prompt}\n{failed_sql}\n\n"
+        f"[ERROR] The above SQL failed with: {error}\n"
+        f"Please correct the SQL query.\n[SQL]"
+    )
+
+
+def _cut_at_semicolon(sql: str) -> str:
+    """Truncate at the first ';' that is not inside a quoted literal or identifier."""
+    quote: str | None = None
+    for i, ch in enumerate(sql):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"', "`"):
+            quote = ch
+        elif ch == ";":
+            return sql[:i]
+    return sql
+
+
 def extract_sql(raw_output: str) -> str:
-    """Strip any accidental markdown fences from model output."""
-    raw = raw_output.strip()
-    if raw.startswith("```"):
-        lines = raw.split("\n")
-        # drop opening fence (```sql or ```) and closing fence
-        inner = []
-        for line in lines[1:]:
-            if line.strip().startswith("```"):
-                break
-            inner.append(line)
-        return "\n".join(inner).strip()
-    return raw
+    """Pull a single SQL statement out of raw model output.
+
+    Handles markdown fences (complete, opening-only or closing-only), stray
+    backticks, and run-on text where the model keeps generating prompt
+    sections or a second query after the first one.
+    """
+    # drop an opening fence (```sql or ```), then anything from a closing fence on
+    raw = re.sub(r"^```(?:sql\b)?\s*", "", raw_output.strip(), flags=re.IGNORECASE)
+    raw = raw.split("```", 1)[0]
+    raw = raw.strip().strip("`").strip()
+
+    for marker in _SQL_STOP_MARKERS:
+        idx = raw.find(marker)
+        if idx != -1:
+            raw = raw[:idx]
+
+    return _cut_at_semicolon(raw).strip()

@@ -1,0 +1,71 @@
+{
+  "label": "ft-serve-exec",
+  "execute": true,
+  "gpu": "rtx_5070_laptop",
+  "gpu_hourly_usd_assumed": 2.5,
+  "api_health": {
+    "status": "ok",
+    "vllm_url": "http://127.0.0.1:8001/v1",
+    "model": "text2sql",
+    "retry_mode": "feedback"
+  },
+  "accuracy": {
+    "exec_acc": 0.7263,
+    "by_difficulty": {
+      "easy": {
+        "n": 248,
+        "exec_acc": 0.8871,
+        "exact_acc": 0.8024,
+        "error_rate": 0.0121
+      },
+      "medium": {
+        "n": 446,
+        "exec_acc": 0.7735,
+        "exact_acc": 0.4395,
+        "error_rate": 0.0336
+      },
+      "hard": {
+        "n": 172,
+        "exec_acc": 0.6395,
+        "exact_acc": 0.3547,
+        "error_rate": 0.0872
+      },
+      "extra": {
+        "n": 168,
+        "exec_acc": 0.4524,
+        "exact_acc": 0.1607,
+        "error_rate": 0.2083
+      }
+    }
+  },
+  "passes": [
+    {
+      "n_requests": 1034,
+      "wall_time_s": 1031.69,
+      "throughput_qps": 1.002,
+      "error_rate": 0.0,
+      "latency_p50_ms": 584.9,
+      "latency_p95_ms": 3214.9,
+      "latency_p99_ms": 5153.0,
+      "latency_mean_ms": 997.8,
+      "concurrency": 1,
+      "retry_rate": 0.1112,
+      "gpu_seconds_per_1k": 998.0,
+      "usd_per_1k": 0.6931
+    },
+    {
+      "n_requests": 1034,
+      "wall_time_s": 84.45,
+      "throughput_qps": 12.244,
+      "error_rate": 0.0,
+      "latency_p50_ms": 739.8,
+      "latency_p95_ms": 4198.8,
+      "latency_p99_ms": 6626.2,
+      "latency_mean_ms": 1264.8,
+      "concurrency": 16,
+      "retry_rate": 0.1103,
+      "gpu_seconds_per_1k": 81.67,
+      "usd_per_1k": 0.0567
+    }
+  ]
+}
