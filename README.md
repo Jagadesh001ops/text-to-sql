@@ -38,9 +38,39 @@ All rows are Qwen2.5-3B-Instruct. **Latency p95 and cost are measured on the ser
 | Fine-tuned + retry (resample) | 88.7% | 77.1% | 63.4% | 48.2% | 72.9% |
 | **Fine-tuned + voting (8 candidates)** | 88.3% | **79.4%** | **65.7%** | **48.8%** | **74.3%** |
 
-- **Fine-tuning is the largest single step:** +15.5 points over zero-shot and +10.5 over 3-shot, with gains in every tier, including extra-hard (+8.9 over zero-shot), where few-shot prompting had *lost* ground. The execution error rate (SQL that fails to run) nearly halves, from 18–19% to 10.5%.
+- **Fine-tuning is the largest single step:** +15.5 points over zero-shot and +10.5 over 3-shot, with gains in every tier, including extra-hard (+8.9 over zero-shot), where 3-shot prompting had not helped. The execution error rate (SQL that fails to run) nearly halves, from 18–19% to 10.5%.
 - Accuracy drops steadily with query complexity in every configuration; even after fine-tuning, about a quarter of extra-hard queries fail to execute (nested subqueries, set operations, multi-way joins).
-- 3-shot prompting adds +4.9 points overall, concentrated in easy–hard (+6 to +9), but *loses* 4.8 points on extra-hard queries. The 3 fixed examples are single-table queries (one easy, two medium) with no joins, nesting or set operations, which likely biases the model toward flat SQL where nesting is needed.
+- 3-shot prompting adds +4.9 points overall, concentrated in easy–hard (+6 to +9). Its 4.8-point drop on extra-hard queries is 8 of 168 questions, within sampling noise for a tier that size, and it did **not** reproduce with other example sets (see the next section), so it is not reported as an effect. (An earlier draft of this README explained the drop by the three fixed examples being simple single-table queries; the follow-up experiment does not support that explanation.)
+
+### Why not just prompt better? Number and choice of examples
+
+Pre-registered in [`docs/experiment_plan.md`](docs/experiment_plan.md) before running. Base model, 0 / 1 / 3 / 6 examples in the prompt, chosen either **randomly** or by a coverage-greedy **diverse** rule (maximise new SQL constructs, difficulty tiers and databases), 3 seeds per cell, all on the same engine (vLLM) and scorer. Mean ± standard deviation over seeds:
+
+| Prompt | Overall | Easy | Medium | Hard | Extra |
+|---|---|---|---|---|---|
+| 0-shot | 55.2 | 75.8 | 56.7 | 44.2 | 32.1 |
+| original fixed 3 | 59.9 | 83.5 | 62.8 | 47.1 | 30.4 |
+| random 1 | 57.2 ± 1.9 | 75.4 | 59.6 | 48.5 | 32.9 |
+| random 3 | 59.7 ± 2.4 | 77.7 | 63.9 | 48.3 | 33.9 |
+| random 6 | 59.9 ± 2.1 | 81.5 | 63.7 | 44.0 | 34.3 |
+| diverse 1 | 55.9 ± 2.0 | 73.5 | 57.6 | 47.1 | 34.7 |
+| diverse 3 | 55.2 ± 4.4 | 72.9 | 56.7 | 45.9 | 34.9 |
+| diverse 6 | 55.7 ± 4.6 | 74.5 | 57.5 | 42.4 | 37.1 |
+| **Fine-tuned** (same engine) | **71.1** | **88.3** | **75.8** | **60.5** | **44.0** |
+
+**Pre-registered hypotheses, as written:**
+
+- **H1.1: accuracy rises from 0 to 3 examples, then flattens.** Supported for random examples (+4.5 points from 0 to 3, +0.2 from 3 to 6). *Not* supported for diverse ones, which gave no meaningful gain over 0-shot at any size (+0.7 points at most).
+- **H1.2: at matched size, diverse beats random on hard + extra questions by ≥ 2 points.** **Not supported:** the differences are +0.2, −0.7 and +0.6 points at 1, 3 and 6 examples, all well inside the seed-to-seed spread (1–4 points).
+- **H1.3: random 3-shot reproduces the extra-hard drop and diverse 3-shot reduces it.** **Not supported:** random 3-shot did not drop on extra-hard (33.9 vs 32.1 for 0-shot), so the original drop was not a general consequence of simple examples.
+
+**What this does show:**
+
+- **Examples mostly teach the output format, and that saturates fast:** random examples reach their plateau (about 60%) by 3, and the best single prompt in the whole sweep scored 62.1%, still about 9 points below fine-tuning (71.1%).
+- **Prompting helps the middle tiers most; fine-tuning helps everywhere.** Over 0-shot, the best random-example cells gain about +7 points on medium, +4 on hard and +2 on extra-hard, against +19, +16 and +12 for fine-tuning: roughly 2–5× more on every tier.
+- **The "diversity" idea was not supported** by this data. Diverse sets were no better than random on average (descriptively worse overall, 55–56% vs 57–60%, but with 3 seeds that is not a significant difference) and more variable (seed sd 4.4–4.6 vs 2.1–2.4).
+
+<sub>Limits: 3 seeds per cell can only detect differences of roughly 4+ points; the vLLM engine reads the base model about 0.7–1.0 points below the Hugging Face runs in the main table (addendum in the plan), so compare cells within this table, not across it. Raw per-run results: `results/fewshot_sweep.json`.</sub>
 
 ### Execution feedback: retry when the SQL fails to run
 
