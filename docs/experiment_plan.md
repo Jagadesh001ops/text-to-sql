@@ -146,3 +146,17 @@ the follow-ups below settle it. Two follow-ups, **post-hoc and run only because 
 
 Neither follow-up changes the scoring of H2.1/H2.2 above. The n = 1,000 point stays single-run
 (now two runs on different subsets), so no difference under about 1.5 points is interpreted.
+
+## Addendum 6 (2026-11-20, after the seed-1 retrain, before the checkpoint scan)
+
+The cause of the seed-0 n = 1,000 collapse (22% empty outputs, mostly whitespace) is unknown. The two
+1,000-example subsets are statistically alike (150 shared examples, which is chance level; same SQL
+length, database coverage and formatting), the unmerged adapter also produced empties, and dev loss
+did not flag it. Untested hypothesis: Spider's gold SQL contains many double spaces, so at 187 steps the
+model is not yet confident about the first SQL token and greedy decoding can fall into runs of space
+tokens. **Scan:** evaluate the other two saved checkpoints of the seed-0 run (steps 155 and 186; the
+shipped step 124 is the 22% run) through the same vLLM path. *Prediction under the hypothesis:* the
+empty rate falls at later steps (< 10% at step 186). *Against it:* the empty rate stays at 15-25%
+at both, or rises, which would point at something in the training dynamics of that run rather than
+at under-training. Three checkpoints from one run cannot establish a cause; the result is reported
+as evidence for or against this one hypothesis only.
