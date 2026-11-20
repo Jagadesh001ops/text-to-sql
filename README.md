@@ -147,6 +147,24 @@ Validation loss bottomed out at step 400 and rose afterwards; the extra two epoc
 
 <sub>Setup: greedy decoding, bf16, max 256 new tokens; 3-shot uses the same 3 fixed training examples in every prompt. Fine-tuning: QLoRA (4-bit NF4 base, LoRA r=16 on q/k/v/o, 7.4M trainable parameters) on Spider's 7,000 training examples, whose databases do not overlap with dev; for evaluation the adapter is merged into the bf16 base and prompted zero-shot. Caveat: Spider's test set is not used here, so the dev set served both to pick the checkpoint (by validation loss, among the saved checkpoints) and to report results; the selection used loss rather than accuracy, so the bias is small but non-zero. Spider dev ships without difficulty labels, so tiers are computed from the gold SQL with Spider's official hardness rules (`eval/hardness.py`), which reproduce the published dev split counts (easy and medium exact, hard/extra within 2 queries). The retry and voting runs reuse the greedy first answer from the plain fine-tuned run (greedy decoding is deterministic; 20 of 20 answers were identical between the two GPUs) and generate only the extra attempts; they ran on a laptop RTX 5070, the other rows on Hazel's RTX 6000 Pro. Voting and resampled retries are random (one run each, no repeats), so differences of a few questions between them are within noise.</sub>
 
+### Fine-tuning: how much training data is needed?
+
+QLoRA on random subsets of the 7,000 training examples, same recipe otherwise; each model is merged into the bf16 base and evaluated zero-shot through vLLM, the same path for every row (including the 7,000 model, re-evaluated). Pre-registered in `docs/experiment_plan.md` (Addenda 3-5).
+
+| Training examples | Easy | Medium | Hard | Extra | Overall | Empty outputs |
+|---|---|---|---|---|---|---|
+| 0 (base model, zero-shot) | 75.8% | 56.7% | 44.2% | 32.1% | 55.2% | |
+| 1,000 (subset seed 0) | 65.3% | 53.1% | 47.1% | 31.5% | **51.6%** | 22% |
+| 1,000 (subset seed 1) | 85.9% | 72.7% | 55.8% | 40.5% | 67.8% | 0% |
+| 3,000 | 86.7% | 70.6% | 55.8% | 40.5% | 67.1% | 0% |
+| 7,000 | 88.7% | 75.8% | 60.5% | 44.1% | 71.2% | 0% |
+
+- **The first 1,000-example run broke, the second did not.** The seed-0 model returns an empty answer for 225 of 1,034 questions (mostly runs of whitespace); on the 809 non-empty answers it scores 65.8%. Its best validation loss (0.266) is the same as the 3,000 model's (0.265), so loss-based checkpoint selection did not catch it. Running that adapter unmerged on the 4-bit base did not fix it (66% empty on the first 200 questions, under a different generation path, so the rate itself is not comparable), so it is not a bf16-merge artifact. I did not find the cause. Retraining on a different subset gave 67.8% with no empty outputs, so with two runs the best reading is that small-data training is unstable here, not that 1,000 examples are worse than none.
+- **Hypotheses, scored as registered.** H2.1 (gain(1,000) ≥ 0.6 and gain(3,000) ≥ 0.85 of the 0→7,000 improvement): **not supported**. With the seed-0 run gain(1,000) is -0.23; with the seed-1 run it is 0.79, but gain(3,000) is 0.75 either way, below 0.85. H2.2 (hard and extra tiers gain more than easy from data beyond 1,000, each by > 1.5 points): **not supported**. With seed 0 the easy tier gains most (+23 points vs +13 hard, +12.5 extra); with seed 1 hard exceeds easy by 1.9 points but extra does not (0.8), and all of these are small.
+- **What I would claim.** About 1,000 well-behaved examples already get most of the gain over prompting (67.8% vs 55.2%), and 7,000 add about 3-4 points on top. The 1,000-example and 3,000-example runs differ by less than the run-to-run spread (the two 1,000 runs differ by 16 points, one of them broken), so the shape between 1,000 and 3,000 is not resolved.
+
+<sub>Setup: `scripts/run_wsl_learning_curve.sh` and `scripts/run_wsl_followup.sh`, QLoRA on the laptop GPU. The new models use micro-batch 2 x 8 gradient accumulation (the 7,000 model used 4 x 4), the same effective batch of 16, learning rate, schedule and 3 epochs; the best checkpoint is chosen by dev loss. One training run per size except 1,000, so differences under about 1.5 points are noise. Same dev-set caveat as above. Raw numbers: `results/learning_curve.json`.</sub>
+
 ---
 
 ## Architecture
