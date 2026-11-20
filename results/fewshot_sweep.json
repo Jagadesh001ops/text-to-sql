@@ -117,6 +117,84 @@
         "max": 39.88
       }
     },
+    "diverse-8": {
+      "n_runs": 3,
+      "overall": {
+        "mean": 61.41,
+        "sd": 2.2,
+        "min": 59.86,
+        "max": 63.93
+      },
+      "hard_extra": {
+        "mean": 44.41,
+        "sd": 1.84,
+        "min": 42.94,
+        "max": 46.47
+      },
+      "easy": {
+        "mean": 81.99,
+        "sd": 1.23,
+        "min": 80.65,
+        "max": 83.06
+      },
+      "medium": {
+        "mean": 62.93,
+        "sd": 3.17,
+        "min": 60.99,
+        "max": 66.59
+      },
+      "hard": {
+        "mean": 50.19,
+        "sd": 3.87,
+        "min": 47.67,
+        "max": 54.65
+      },
+      "extra": {
+        "mean": 38.49,
+        "sd": 1.24,
+        "min": 37.5,
+        "max": 39.88
+      }
+    },
+    "diverse-16": {
+      "n_runs": 3,
+      "overall": {
+        "mean": 60.96,
+        "sd": 2.01,
+        "min": 58.8,
+        "max": 62.77
+      },
+      "hard_extra": {
+        "mean": 42.16,
+        "sd": 1.12,
+        "min": 40.88,
+        "max": 42.94
+      },
+      "easy": {
+        "mean": 82.26,
+        "sd": 2.52,
+        "min": 80.24,
+        "max": 85.08
+      },
+      "medium": {
+        "mean": 63.45,
+        "sd": 2.58,
+        "min": 60.54,
+        "max": 65.47
+      },
+      "hard": {
+        "mean": 50.19,
+        "sd": 3.2,
+        "min": 47.09,
+        "max": 53.49
+      },
+      "extra": {
+        "mean": 33.93,
+        "sd": 1.58,
+        "min": 32.14,
+        "max": 35.12
+      }
+    },
     "first-3": {
       "n_runs": 1,
       "overall": {
@@ -311,6 +389,84 @@
         "min": 33.33,
         "max": 35.12
       }
+    },
+    "random-8": {
+      "n_runs": 3,
+      "overall": {
+        "mean": 62.09,
+        "sd": 1.51,
+        "min": 61.12,
+        "max": 63.83
+      },
+      "hard_extra": {
+        "mean": 42.16,
+        "sd": 1.89,
+        "min": 40.0,
+        "max": 43.53
+      },
+      "easy": {
+        "mean": 81.99,
+        "sd": 1.68,
+        "min": 80.65,
+        "max": 83.87
+      },
+      "medium": {
+        "mean": 66.22,
+        "sd": 2.26,
+        "min": 64.13,
+        "max": 68.61
+      },
+      "hard": {
+        "mean": 49.61,
+        "sd": 1.21,
+        "min": 48.26,
+        "max": 50.58
+      },
+      "extra": {
+        "mean": 34.52,
+        "sd": 2.72,
+        "min": 31.55,
+        "max": 36.9
+      }
+    },
+    "random-16": {
+      "n_runs": 3,
+      "overall": {
+        "mean": 61.77,
+        "sd": 2.44,
+        "min": 59.86,
+        "max": 64.51
+      },
+      "hard_extra": {
+        "mean": 42.74,
+        "sd": 3.28,
+        "min": 40.29,
+        "max": 46.47
+      },
+      "easy": {
+        "mean": 81.18,
+        "sd": 1.91,
+        "min": 79.03,
+        "max": 82.66
+      },
+      "medium": {
+        "mean": 65.47,
+        "sd": 3.26,
+        "min": 62.11,
+        "max": 68.61
+      },
+      "hard": {
+        "mean": 49.03,
+        "sd": 3.41,
+        "min": 46.51,
+        "max": 52.91
+      },
+      "extra": {
+        "mean": 36.31,
+        "sd": 3.15,
+        "min": 33.93,
+        "max": 39.88
+      }
     }
   },
   "zero_shot": 55.22,
@@ -360,6 +516,20 @@
       "random3_reproduces_drop": false,
       "diverse3_reduces_it": true,
       "supported": false
+    },
+    "H1.4 random plateau persists": {
+      "random6": 59.9,
+      "random8": 62.09,
+      "random16": 61.77,
+      "diff_8_vs_6": 2.19,
+      "diff_16_vs_6": 1.87,
+      "supported": false
+    },
+    "H1.5 diverse converges to random": {
+      "gap_n3": -4.52,
+      "gap_n16": -0.81,
+      "gap_n8": -0.68,
+      "supported": true
     }
   }
 }

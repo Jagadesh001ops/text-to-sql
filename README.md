@@ -44,7 +44,7 @@ All rows are Qwen2.5-3B-Instruct. **Latency p95 and cost are measured on the ser
 
 ### Why not just prompt better? Number and choice of examples
 
-Pre-registered in [`docs/experiment_plan.md`](docs/experiment_plan.md) before running. Base model, 0 / 1 / 3 / 6 examples in the prompt, chosen either **randomly** or by a coverage-greedy **diverse** rule (maximise new SQL constructs, difficulty tiers and databases), 3 seeds per cell, all on the same engine (vLLM) and scorer. Mean ± standard deviation over seeds:
+Pre-registered in [`docs/experiment_plan.md`](docs/experiment_plan.md) before running. Base model, 0 / 1 / 3 / 6 / 8 / 16 examples in the prompt (8 and 16 were added after seeing the first results, with their predictions registered before running), chosen either **randomly** or by a coverage-greedy **diverse** rule (maximise new SQL constructs, difficulty tiers and databases), 3 seeds per cell, all on the same engine (vLLM) and scorer. Mean ± standard deviation over seeds:
 
 | Prompt | Overall | Easy | Medium | Hard | Extra |
 |---|---|---|---|---|---|
@@ -53,9 +53,13 @@ Pre-registered in [`docs/experiment_plan.md`](docs/experiment_plan.md) before ru
 | random 1 | 57.2 ± 1.9 | 75.4 | 59.6 | 48.5 | 32.9 |
 | random 3 | 59.7 ± 2.4 | 77.7 | 63.9 | 48.3 | 33.9 |
 | random 6 | 59.9 ± 2.1 | 81.5 | 63.7 | 44.0 | 34.3 |
+| random 8 | 62.1 ± 1.5 | 82.0 | 66.2 | 49.6 | 34.5 |
+| random 16 | 61.8 ± 2.4 | 81.2 | 65.5 | 49.0 | 36.3 |
 | diverse 1 | 55.9 ± 2.0 | 73.5 | 57.6 | 47.1 | 34.7 |
 | diverse 3 | 55.2 ± 4.4 | 72.9 | 56.7 | 45.9 | 34.9 |
 | diverse 6 | 55.7 ± 4.6 | 74.5 | 57.5 | 42.4 | 37.1 |
+| diverse 8 | 61.4 ± 2.2 | 82.0 | 62.9 | 50.2 | 38.5 |
+| diverse 16 | 61.0 ± 2.0 | 82.3 | 63.5 | 50.2 | 33.9 |
 | **Fine-tuned** (same engine) | **71.1** | **88.3** | **75.8** | **60.5** | **44.0** |
 
 **Pre-registered hypotheses, as written:**
@@ -63,14 +67,16 @@ Pre-registered in [`docs/experiment_plan.md`](docs/experiment_plan.md) before ru
 - **H1.1: accuracy rises from 0 to 3 examples, then flattens.** Supported for random examples (+4.5 points from 0 to 3, +0.2 from 3 to 6). *Not* supported for diverse ones, which gave no meaningful gain over 0-shot at any size (+0.7 points at most).
 - **H1.2: at matched size, diverse beats random on hard + extra questions by ≥ 2 points.** **Not supported:** the differences are +0.2, −0.7 and +0.6 points at 1, 3 and 6 examples, all well inside the seed-to-seed spread (1–4 points).
 - **H1.3: random 3-shot reproduces the extra-hard drop and diverse 3-shot reduces it.** **Not supported:** random 3-shot did not drop on extra-hard (33.9 vs 32.1 for 0-shot), so the original drop was not a general consequence of simple examples.
+- **H1.4 (added after the first results, predicted before the 8- and 16-shot runs): the random plateau persists, i.e. 8 and 16 examples stay within 1.5 points of 6.** **Not supported as written:** random 8 is +2.2 and random 16 is +1.9 above random 6. Both differences are only 1.0–1.5 standard errors with 3 seeds, so they are not clearly real either, but the prediction missed its own threshold and the "plateau by 3" reading from the first results was premature.
+- **H1.5 (same status): diverse selection converges toward random as examples grow.** **Supported:** the diverse − random gap is −4.5 points at 3 examples, −0.7 at 8 and −0.8 at 16.
 
 **What this does show:**
 
-- **Examples mostly teach the output format, and that saturates fast:** random examples reach their plateau (about 60%) by 3, and the best single prompt in the whole sweep scored 62.1%, still about 9 points below fine-tuning (71.1%).
-- **Prompting helps the middle tiers most; fine-tuning helps everywhere.** Over 0-shot, the best random-example cells gain about +7 points on medium, +4 on hard and +2 on extra-hard, against +19, +16 and +12 for fine-tuning: roughly 2–5× more on every tier.
-- **The "diversity" idea was not supported** by this data. Diverse sets were no better than random on average (descriptively worse overall, 55–56% vs 57–60%, but with 3 seeds that is not a significant difference) and more variable (seed sd 4.4–4.6 vs 2.1–2.4).
+- **More examples help slowly, then stop at about 8:** random-example accuracy goes 55.2 → 57.2 → 59.7 → 59.9 → 62.1 → 61.8 for 0 / 1 / 3 / 6 / 8 / 16 examples, and 16 adds nothing over 8 (−0.3). The best single prompt in the whole sweep scored 64.5%, still about 7 points below fine-tuning (71.1%); the best mean, 62.1%, is 9 points below.
+- **Prompting helps the middle tiers most; fine-tuning helps everywhere.** Over 0-shot, the best random-example cells (8 and 16 examples) gain about +9 points on medium, +5 on hard and +4 on extra-hard, against +19, +16 and +12 for fine-tuning: roughly 2–3× more on every tier.
+- **The "diversity" idea was not supported.** At 1–6 examples, diverse sets were no better than random (descriptively worse overall, 55–56% vs 57–60%, but with 3 seeds that is not a significant difference) and more variable (seed sd 4.4–4.6 vs 2.1–2.4). At 8 and 16 examples the two strategies are indistinguishable (gap under 1 point).
 
-<sub>Limits: 3 seeds per cell can only detect differences of roughly 4+ points; the vLLM engine reads the base model about 0.7–1.0 points below the Hugging Face runs in the main table (addendum in the plan), so compare cells within this table, not across it. Raw per-run results: `results/fewshot_sweep.json`.</sub>
+<sub>Limits: 3 seeds per cell can only detect differences of roughly 4+ points; the 8- and 16-shot runs were added after seeing the 1–6-shot results (predictions registered first, but the decision to look further was data-dependent); the vLLM engine reads the base model about 0.7–1.0 points below the Hugging Face runs in the main table (addendum in the plan), so compare cells within this table, not across it. Raw per-run results: `results/fewshot_sweep.json`.</sub>
 
 ### Execution feedback: retry when the SQL fails to run
 

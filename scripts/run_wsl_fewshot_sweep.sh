@@ -54,7 +54,13 @@ run() {   # run <tag> <strategy> <shots> <seed>
     status "run $1 ($2, n=$3, seed=$4)"
     "$ENVDIR/bin/python" eval/vllm_eval.py --tag "$1" --strategy "$2" --shots "$3" --seed "$4" \
         --model base --url "http://127.0.0.1:$PORT/v1" > "logs/sweep_$1.log" 2>&1
-    status "done $1: $(tail -1 eval/results/sweep/summary.jsonl | "$ENVDIR/bin/python" -c 'import json,sys; d=json.loads(sys.stdin.read()); print("exec_acc=%.4f errors=%d wall=%ss" % (d["exec_acc"], d["request_errors"], d["wall_s"]))')"
+    # the record for THIS tag (a skipped, already-finished run must not report another run's numbers)
+    status "done $1: $("$ENVDIR/bin/python" -c '
+import json, sys
+rec = [json.loads(l) for l in open("eval/results/sweep/summary.jsonl") if l.strip()]
+d = [r for r in rec if r["tag"] == sys.argv[1]][-1]
+print("exec_acc=%.4f errors=%d wall=%ss%s" % (d["exec_acc"], d["request_errors"], d["wall_s"], " (already done)" if d["tag"] != sys.argv[2] else ""))
+' "$1" "$1")"
     if [ -n "$WIN_OUT" ]; then
         mkdir -p "$WIN_OUT/sweep"; cp -f eval/results/sweep/summary.jsonl "$WIN_OUT/sweep/summary.jsonl"
     fi
