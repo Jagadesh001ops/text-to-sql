@@ -47,14 +47,17 @@ copy_out() {
     cp -f logs/train_n*.log logs/vllm_lc_*.log "$WIN_OUT/curve/" 2>/dev/null || true
 }
 
-train() {   # train <N>: 3 epochs, ~6 evaluations, falls back to smaller batches on GPU OOM
+train() {   # train <N>: 3 epochs, ~6 evaluations; micro-batch 2 x 8 accumulation (effective 16), 1 x 16 if OOM
+    # (batch 4 peaks at ~5.9 GB on typical examples and the 152k-token vocab makes long batches OOM;
+    #  see docs/experiment_plan.md, Addendum 4)
     local n="$1" out="training/outputs_lc/n$1"
     [ -f "$out/best_checkpoint/adapter_model.safetensors" ] && { status "n=$n: already trained"; return 0; }
     local steps=$(( n * 3 / 16 )); local every=$(( steps / 6 )); [ "$every" -lt 10 ] && every=10
-    for bs in "" "--batch-size 2" "--batch-size 1"; do
+    for bs in "--batch-size 2" "--batch-size 1"; do
         rm -rf "$out"
-        status "n=$n: training ($steps steps, eval every $every) ${bs:-default batch 4x4}"
-        if "$TRAIN_ENV/bin/python" training/train.py --train-size "$n" --output-dir "$out" --eval-steps "$every" \
+        status "n=$n: training ($steps steps, eval every $every) $bs"
+        if PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True "$TRAIN_ENV/bin/python" training/train.py \
+               --train-size "$n" --output-dir "$out" --eval-steps "$every" \
                --run-name "lc$n" $bs > "logs/train_n$n.log" 2>&1; then
             status "n=$n: trained: $(grep -E "'train_runtime'" "logs/train_n$n.log" | tail -1 | cut -c1-120)"
             return 0

@@ -104,6 +104,17 @@ Making Experiment 2 precise before running it; no prediction is changed.
 - One training run per size, no seeds: the experiment cannot separate a data-size effect from run-to-run
   training variance of about a point.
 
+## Addendum 4 (2026-11-19, after the training smoke test, before the Experiment 2 runs)
+
+A smoke test of QLoRA on the 8 GB laptop GPU peaked at 5.9 GB with the main run's micro-batch of 4
+(×4 accumulation) on typical examples; the 152k-token vocabulary makes the loss tensor large enough
+that the longest batches would likely run out of memory. The new models are therefore trained with
+**micro-batch 2 × 8 accumulation steps**: the same effective batch of 16 and the same learning rate,
+schedule and epochs as the 7,000-example model, which used 4 × 4. This is a small protocol
+difference (gradient accumulation changes only the numerical grouping of the same 16 examples) that
+is reported with the results, not a change to any hypothesis. Training runs use PyTorch's
+`expandable_segments` allocator to limit fragmentation.
+
 ## Caveats, stated up front
 
 - One training run per size (no seeds), so size differences under about 1–1.5 points are noise.
