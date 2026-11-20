@@ -1,0 +1,66 @@
+{
+  "sizes": [
+    1000,
+    3000,
+    7000
+  ],
+  "accuracy": {
+    "0": 55.22,
+    "1000": 51.55,
+    "3000": 67.12,
+    "7000": 71.18
+  },
+  "tiers": {
+    "0": {
+      "easy": 75.81,
+      "medium": 56.73,
+      "hard": 44.19,
+      "extra": 32.14
+    },
+    "1000": {
+      "easy": 65.32,
+      "medium": 53.14,
+      "hard": 47.09,
+      "extra": 31.55
+    },
+    "3000": {
+      "easy": 86.69,
+      "medium": 70.63,
+      "hard": 55.81,
+      "extra": 40.48
+    },
+    "7000": {
+      "easy": 88.71,
+      "medium": 75.78,
+      "hard": 60.47,
+      "extra": 44.05
+    }
+  },
+  "gain_fraction": {
+    "1000": -0.23,
+    "3000": 0.746,
+    "7000": 1.0
+  },
+  "checks": {
+    "H2.1": {
+      "gain_1000": -0.23,
+      "gain_3000": 0.746,
+      "supported": false,
+      "against_us": {
+        "gain_1000_below_0.4": true,
+        "3000_within_1pt_of_7000": false
+      }
+    },
+    "H2.2": {
+      "gain_beyond_1000_points": {
+        "easy": 23.39,
+        "medium": 22.64,
+        "hard": 13.38,
+        "extra": 12.5
+      },
+      "hard_exceeds_easy": false,
+      "extra_exceeds_easy": false,
+      "supported": false
+    }
+  }
+}

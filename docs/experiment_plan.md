@@ -122,3 +122,27 @@ is reported with the results, not a change to any hypothesis. Training runs use 
   main results.
 - A laptop GPU with a small KV cache: throughput numbers are not part of these experiments, only
   accuracy.
+
+## Addendum 5 (2026-11-19, after the Experiment 2 results, before the follow-up runs)
+
+The n = 1,000 model scored 51.6%, below the 0-shot base (55.2%), and 225 of its 1,034 predictions
+(22%) are empty; on the 809 non-empty ones it scores 65.8%. Spot checks (12 empty cases, served with
+no stop strings) show mostly runs of whitespace with no SQL, so this is largely the model's output
+and not only a stop-string artifact. Its best dev loss (0.266) is the same as the n = 3,000 model's
+(0.265), so loss selection does not flag the problem. H2.1 and H2.2 are scored as registered (both not
+supported) and the 1,000 point is reported as anomalous, not as a finding about data volume, unless
+the follow-ups below settle it. Two follow-ups, **post-hoc and run only because of this anomaly**:
+
+- **A.** Run the same n = 1,000 adapter *unmerged* on the 4-bit base it was trained against (HF
+  generate, first 200 dev questions) and compare its empty rate with the same 200 questions from the
+  merged-bf16 vLLM run. *Prediction:* if the empties are a bf16-merge artifact, the unmerged run has
+  well under half the empty rate (< 5% vs ~15% on that slice); if they are a training outcome, it
+  stays similar.
+- **B.** Retrain n = 1,000 on a different random subset (subset seed 1; otherwise identical recipe,
+  micro-batch 2 x 8) and evaluate through the same vLLM path. *Prediction:* if the first run was an
+  unlucky outlier, the new model is above the 0-shot base (> 55.2%) with few empty outputs (< 5%); if
+  it again falls below the base or has > 10% empty outputs, the small-data collapse is a real effect
+  of this recipe at this size. A mixed result is reported as "one of two runs collapsed".
+
+Neither follow-up changes the scoring of H2.1/H2.2 above. The n = 1,000 point stays single-run
+(now two runs on different subsets), so no difference under about 1.5 points is interpreted.
