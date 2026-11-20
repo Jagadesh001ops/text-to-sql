@@ -36,7 +36,7 @@ All rows are Qwen2.5-3B-Instruct. Latency and cost are measured on the served sy
 - Fine-tuning gains +15.5 points over zero-shot in all tiers (+8.9 on extra-hard) and cuts the share of SQL that fails to run from 18–19% to 10.5%. Accuracy still falls steadily with query complexity.
 - 3-shot prompting adds +4.9 points overall. Its 4.8-point drop on extra-hard is 8 of 168 questions, did not reproduce with other example sets, and is not reported as an effect.
 
-<sub>Setup: greedy decoding, bf16, max 256 new tokens. QLoRA (4-bit NF4 base, LoRA r=16 on q/k/v/o, 7.4M trainable parameters) on Spider's 7,000 training examples, whose databases do not overlap dev; the adapter is merged into the bf16 base and prompted zero-shot. The shipped checkpoint is step 400, the lowest validation loss; the end-of-training checkpoint (step 1299) scores 69.3%. The fine-tuned model ran on Hazel's RTX 6000 Pro; retry and voting ran on a laptop RTX 5070 and reuse the greedy first answers (20 of 20 identical across the two GPUs).</sub>
+**Setup:** greedy decoding, bf16, max 256 new tokens. QLoRA (4-bit NF4 base, LoRA r=16 on q/k/v/o, 7.4M trainable parameters) on Spider's 7,000 training examples, whose databases do not overlap dev; the adapter is merged into the bf16 base and prompted zero-shot. The shipped checkpoint is step 400, the lowest validation loss; the end-of-training checkpoint (step 1299) scores 69.3%. The fine-tuned model ran on Hazel's RTX 6000 Pro; retry and voting ran on a laptop RTX 5070 and reuse the greedy first answers (20 of 20 identical across the two GPUs).
 
 ### Prompting alone: how many examples, and which ones?
 
@@ -70,7 +70,7 @@ The database acts as a verifier. Of the 1,034 first attempts, **109 (10.5%) fail
 | Retry, resample at T=0.7 (≤2) | 72.9% (+1.5) | 7.4% | ~1.0 s |
 | **Vote over 8 candidates** | **74.3% (+2.9)** | **5.5%** | ~4.9 s |
 
-<sub>*Laptop RTX 5070, Hugging Face `generate`, one query at a time; one greedy answer takes about 3 s. Not served latencies. Retry and voting are single runs; the two retry styles differ by 4 questions and are not distinguishable.</sub>
+\*Laptop RTX 5070, Hugging Face `generate`, one query at a time; one greedy answer takes about 3 s. Not served latencies. Retry and voting are single runs; the two retry styles differ by 4 questions and are not distinguishable.
 
 - **Retry** gets 40 (feedback) or 33 (resample) of the 109 failures running, but only 12 and 16 of those become correct; about three quarters of the remaining errors run and return the wrong result, which retrying cannot see.
 - **Voting** generates 8 candidates (greedy + 7 samples at T=0.7), executes them all and returns the result most candidates agree on (failed candidates get no vote; ties go to greedy). It changed 78 answers and came out 30 questions ahead, with the gain in medium (+3.6), hard (+4.7) and extra (+4.2); easy is flat. It costs about 5× the extra generation time of a retry for about twice the gain.
@@ -92,7 +92,7 @@ Fine-tuned model (adapter merged, bf16) behind **vLLM 0.34 + FastAPI** on an **R
 - **The verifier** costs about 40% more GPU time and doubles p95 (2.0 → 4.2 s) for +1.6 points; only the ~11% of queries that fail are generated again, so the median is unchanged.
 - **Throughput saturates near 16 in flight** because the 5.8 GiB model leaves only a 0.5 GiB KV cache on this card. The shape of the curve is the transferable result, not the absolute numbers.
 
-<sub>Setup: `scripts/run_wsl_benchmark.sh` (vLLM `--enforce-eager`, `--max-num-seqs 16`, 512 MiB KV cache, 2,048-token context). One run per level. The GPU is shared with the Windows desktop. Voting and resampled retries were not served.</sub>
+**Setup:** `scripts/run_wsl_benchmark.sh` (vLLM `--enforce-eager`, `--max-num-seqs 16`, 512 MiB KV cache, 2,048-token context). One run per level. The GPU is shared with the Windows desktop. Voting and resampled retries were not served.
 
 ### Fine-tuning: how much training data?
 
@@ -110,7 +110,7 @@ QLoRA on random subsets of the 7,000 examples, same recipe; each model merged an
 - **H2.1** (gain(1,000) ≥ 0.6 and gain(3,000) ≥ 0.85 of the 0→7,000 improvement): **not supported**; gain(3,000) is 0.75, and gain(1,000) is −0.23 (seed 0) or 0.79 (seed 1). **H2.2** (hard and extra gain more than easy from data beyond 1,000): **not supported.**
 - **What I would claim:** about 1,000 well-behaved examples get most of the gain over prompting (67.8% vs 55.2%) and 7,000 add 3–4 points. The 1,000 vs 3,000 shape is unresolved, and small-data training looks unstable in this recipe.
 
-<sub>Setup: `scripts/run_wsl_learning_curve.sh`, `run_wsl_followup.sh`, `run_wsl_ckpt_scan.sh`. The new models use micro-batch 2 × 8 (the 7,000 model used 4 × 4), the same effective batch of 16, learning rate, schedule and 3 epochs. Raw numbers: `results/learning_curve.json`, `results/learning_curve_followup.json`.</sub>
+**Setup:** `scripts/run_wsl_learning_curve.sh`, `run_wsl_followup.sh`, `run_wsl_ckpt_scan.sh`. The new models use micro-batch 2 × 8 (the 7,000 model used 4 × 4), the same effective batch of 16, learning rate, schedule and 3 epochs. Raw numbers: `results/learning_curve.json`, `results/learning_curve_followup.json`.
 
 ---
 
