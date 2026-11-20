@@ -67,6 +67,25 @@ vs 60.8%, i.e. −0.7 and −1.0 points. The original 3-shot's extra-hard drop r
 between cells run on the same engine, and cross-engine differences of about a point are treated
 as engine noise when relating these results to the main table.
 
+## Addendum 2 (2026-11-19, after the n ≤ 6 results; extension requested by the project owner)
+
+The n ≤ 6 sweep is complete (see the README). It supports the claim that random examples plateau
+by about 3, but only up to 6; whether 8 or 16 examples change that was not tested. This extension
+adds n ∈ {8, 16} for both strategies, 3 seeds each (12 runs). It is **post-hoc in scope** (decided
+after seeing the first results) and is reported as such; the predictions below are fixed before any
+of these runs exist. Worst-case prompts are about 4,500 tokens at n = 16, inside the 6,144-token
+context.
+
+- **H1.4** The random-example plateau persists: mean accuracy at n = 8 and n = 16 is within 1.5
+  points of the n = 6 mean.
+- **H1.5** Diverse selection converges toward random as n grows (coverage saturates): the absolute
+  diverse − random gap in overall accuracy at n = 16 is below 2 points, and smaller than the gap
+  at n = 3.
+
+**Against us:** random accuracy at 16 shots more than 1.5 points above n = 6 (more examples keep
+helping) or below it (long prompts hurt); or a diverse − random gap at n = 16 of 2+ points. Same
+caveats as above: 3 seeds per cell.
+
 ## Caveats, stated up front
 
 - One training run per size (no seeds), so size differences under about 1–1.5 points are noise.
